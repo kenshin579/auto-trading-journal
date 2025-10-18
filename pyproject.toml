@@ -1,0 +1,55 @@
+[project]
+name = "stock-google-sheet"
+version = "0.1.0"
+description = "Stock trading data review and analysis tool with Google Sheets integration"
+readme = "docs/prd.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+
+dependencies = [
+    # Google Sheets API
+    "google-api-python-client==2.108.0",
+    "google-auth==2.23.4",
+    "google-auth-oauthlib==1.1.0",
+    "google-auth-httplib2==0.1.1",
+    
+    # OpenAI API
+    "openai==1.3.7",
+    
+    # 기본 패키지
+    "pyyaml==6.0.1",
+    "python-dotenv==1.0.0",
+    
+    # 로깅
+    "colorlog==6.8.2",
+    
+    # JSON 처리
+    "ujson==5.10.0",
+    
+    # 날짜 처리
+    "python-dateutil==2.9.0",
+    
+    # 타입 힌트
+    "typing-extensions==4.12.2"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==7.4.3",
+    "pytest-asyncio==0.21.1"
+]
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["test_main.py", "modules"]
+python_files = "test_*.py"
+python_functions = "test_*"
+asyncio_mode = "auto"
+
+[tool.setuptools]
+packages = ["modules"] 

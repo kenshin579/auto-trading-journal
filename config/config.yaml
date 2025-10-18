@@ -1,0 +1,13 @@
+# Google Sheets 설정
+google_sheets:
+  spreadsheet_id: 1lIZRyQ7WhEU3HZl2b1YAmAMgJNESz2IQq74zba218RQ
+  service_account_path: /Users/user/.config/google_sheet/service_account_key.json  # 환경변수 SERVICE_ACCOUNT_PATH로도 설정 가능
+
+# 로깅 설정
+logging:
+  level: INFO
+
+# 처리 설정
+batch_size: 10
+empty_row_threshold: 100
+stock_type_cache_file: stock_type_cache.json 
