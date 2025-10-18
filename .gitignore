@@ -36,3 +36,5 @@ token.dat
 
 *.egg-info
 .history
+reports
+logs
