@@ -578,7 +578,7 @@ class SheetManager:
                 # 색상 적용 범위 추가
                 color_ranges.append({
                     'start_row': start_row + start_idx,
-                    'end_row': start_row + end_idx + 1,  # end_row는 exclusive
+                    'end_row': start_row + end_idx,  # Google API에서 endRowIndex는 exclusive (자동으로 +1 처리됨)
                     'start_col': start_col,
                     'end_col': end_col,
                     'color': color
