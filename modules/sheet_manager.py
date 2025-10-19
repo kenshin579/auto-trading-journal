@@ -496,7 +496,7 @@ class SheetManager:
                 
                 if success:
                     logger.info(f"시트 '{sheet_name}' 배치 업데이트 성공")
-                    
+
                     # 입력된 데이터 위치 상세 로그
                     for range_str, data in ranges.items():
                         logger.info(f"  ✓ {range_str} 범위에 {len(data)}개 행 입력 완료")
@@ -505,7 +505,30 @@ class SheetManager:
                             logger.info(f"    첫 번째: {data[0][0]} ({data[0][3]} {data[0][2]})")
                             if len(data) > 1:
                                 logger.info(f"    마지막: {data[-1][0]} ({data[-1][3]} {data[-1][2]})")
-                    
+
+                    # 숫자 포맷 적용 (주문가격: 5번째 데이터, 총액: 8번째 데이터)
+                    for trades, start_row, start_col, end_col in color_info[sheet_name]:
+                        # 주문가격과 총액 열 계산 (start_col 기준 상대 위치)
+                        price_col = start_col + 4  # 5번째 데이터 (0-indexed: 4)
+                        total_col = start_col + 7  # 8번째 데이터 (0-indexed: 7)
+                        end_row = start_row + len(trades) - 1
+
+                        # 국내/해외에 따라 다른 포맷 적용
+                        if '국내' in sheet_name:
+                            # 원화 포맷 적용
+                            self.client.apply_number_format(
+                                sheet_name, start_row, end_row,
+                                [price_col, total_col], "[$₩-412]#,##0"
+                            )
+                            logger.info(f"원화 포맷 적용: 행 {start_row}-{end_row}, 열 {[price_col, total_col]}")
+                        elif '해외' in sheet_name:
+                            # 달러 포맷 적용
+                            self.client.apply_number_format(
+                                sheet_name, start_row, end_row,
+                                [price_col, total_col], "[$$-409]#,##0.00"
+                            )
+                            logger.info(f"달러 포맷 적용: 행 {start_row}-{end_row}, 열 {[price_col, total_col]}")
+
                     # 색상 적용
                     if sheet_name in color_info:
                         for trades, start_row, start_col, end_col in color_info[sheet_name]:
