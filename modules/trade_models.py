@@ -44,10 +44,10 @@ class DomesticTrade(BaseTrade):
             "미래에셋증권",
             self.date,
             self.trade_type,
-            f"₩{self.price:,.0f}",
+            f"{self.price:,.0f}",
             str(self.quantity),
             "",  # 수수료 (빈 값)
-            f"₩{self.total_amount:,.0f}"
+            f"{self.total_amount:,.0f}"
         ]
     
     def validate(self) -> bool:
@@ -113,16 +113,16 @@ class ForeignTrade(BaseTrade):
             quantity = self.sell_quantity
             price = self.sell_price
             total_amount = self.sell_amount
-        
+
         return [
             self.stock_name,                       # 종목
             "미래에셋증권",                        # 증권사
             self.date,                             # 일자
             self.trade_type,                       # 종류 (매수/매도)
-            f"${price:.2f}",                       # 주문가격 (달러 표시)
+            f"{price:.2f}",                        # 주문가격
             str(quantity),                         # 수량
             "",                                    # 수수료 (빈 값)
-            f"${total_amount:.2f}"                 # 총액 (달러 표시)
+            f"{total_amount:.2f}"                  # 총액
         ]
     
     def validate(self) -> bool:

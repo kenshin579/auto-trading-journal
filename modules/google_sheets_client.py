@@ -256,6 +256,78 @@ class GoogleSheetsClient:
             logger.error(f"색상 적용 실패: {e}")
             return False
     
+    def apply_number_format(self, sheet_name: str, start_row: int, end_row: int,
+                            columns: List[int], format_pattern: str) -> bool:
+        """특정 범위에 숫자 포맷을 적용합니다
+
+        Args:
+            sheet_name: 시트 이름
+            start_row: 시작 행
+            end_row: 종료 행
+            columns: 포맷 적용할 열 번호 리스트 (1-based)
+            format_pattern: 포맷 패턴
+                - "#,##0" : 천 단위 구분
+                - "#,##0.00" : 소수점 2자리
+                - "[$₩-412]#,##0" : 원화
+                - "[$$-409]#,##0.00" : 달러
+
+        Returns:
+            성공 여부
+        """
+        try:
+            # 시트 ID 가져오기
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+
+            if sheet_id is None:
+                logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+
+            # 각 열에 대해 포맷 적용 요청 생성
+            requests = []
+            for col in columns:
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': start_row - 1,  # 0-based index
+                            'endRowIndex': end_row,
+                            'startColumnIndex': col - 1,
+                            'endColumnIndex': col
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'numberFormat': {
+                                    'type': 'NUMBER',
+                                    'pattern': format_pattern
+                                }
+                            }
+                        },
+                        'fields': 'userEnteredFormat.numberFormat'
+                    }
+                })
+
+            body = {'requests': requests}
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+
+            logger.info(f"숫자 포맷 적용 완료: {sheet_name} 행 {start_row}-{end_row}, 열 {columns}")
+            return True
+
+        except HttpError as e:
+            logger.error(f"숫자 포맷 적용 실패: {e}")
+            return False
+
     def batch_apply_colors(self, sheet_name: str, color_ranges: List[Dict[str, Any]]) -> bool:
         """여러 범위에 한 번에 색상을 적용합니다
         
