@@ -1,0 +1,17 @@
+name: Auto Assign PR
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  auto-assign:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Auto assign PR to repository owner
+        uses: pozil/auto-assign-issue@v2
+        with:
+          assignees: kenshin579
+          numOfAssignee: 1
