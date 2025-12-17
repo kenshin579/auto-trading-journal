@@ -54,10 +54,10 @@ class StockDataProcessor:
         if dry_run:
             logger.info("=== 드라이런 모드로 실행 중 (실제 데이터 입력 없음) ===")
         
-        # 스프레드시트 ID 가져오기
-        self.spreadsheet_id = config.get('google_sheets', {}).get('spreadsheet_id', '')
+        # 스프레드시트 ID 가져오기 (환경변수 우선)
+        self.spreadsheet_id = os.getenv('GOOGLE_SPREADSHEET_ID') or config.get('google_sheets', {}).get('spreadsheet_id', '')
         if not self.spreadsheet_id:
-            raise ValueError("설정 파일에 spreadsheet_id가 없습니다")
+            raise ValueError("환경변수 GOOGLE_SPREADSHEET_ID 또는 설정 파일에 spreadsheet_id가 없습니다")
         
         # 서비스 계정 경로 가져오기
         service_account_path = config.get('google_sheets', {}).get('service_account_path')
