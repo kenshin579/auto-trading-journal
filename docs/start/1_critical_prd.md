@@ -11,8 +11,8 @@
 ```yaml
 # config/config.yaml (현재)
 google_sheets:
-  spreadsheet_id: REDACTED_SPREADSHEET_ID  # 실제 ID 노출
-  service_account_path: REDACTED_SERVICE_ACCOUNT_PATH  # 경로 노출
+  spreadsheet_id: <REDACTED_SPREADSHEET_ID>  # 실제 ID 노출
+  service_account_path: <REDACTED_SERVICE_ACCOUNT_PATH>  # 경로 노출
 ```
 
 ### 위험 요소
@@ -50,7 +50,7 @@ if not self.spreadsheet_id:
 **현재 코드** (`modules/google_sheets_client.py:36-37`):
 ```python
 self.service_account_path = os.getenv('SERVICE_ACCOUNT_PATH',
-                                     'REDACTED_SERVICE_ACCOUNT_PATH')
+                                     '<REDACTED_SERVICE_ACCOUNT_PATH>')
 ```
 
 **변경 후**:
@@ -130,8 +130,8 @@ git clone --mirror https://github.com/USERNAME/auto-trading-journal.git
 
 # 3. 민감한 텍스트가 포함된 파일 생성
 cat > /tmp/replacements.txt << 'EOF'
-REDACTED_SPREADSHEET_ID==>REDACTED_SPREADSHEET_ID
-REDACTED_SERVICE_ACCOUNT_PATH==>REDACTED_SERVICE_ACCOUNT_PATH
+<YOUR_SPREADSHEET_ID>==>REDACTED_SPREADSHEET_ID
+<YOUR_SERVICE_ACCOUNT_PATH>==>REDACTED_SERVICE_ACCOUNT_PATH
 EOF
 
 # 4. BFG로 민감한 정보 대체
@@ -153,8 +153,8 @@ pip install git-filter-repo
 
 # 2. 민감한 정보 대체
 git filter-repo --replace-text <(cat << 'EOF'
-REDACTED_SPREADSHEET_ID==>REDACTED_SPREADSHEET_ID
-REDACTED_SERVICE_ACCOUNT_PATH==>REDACTED_SERVICE_ACCOUNT_PATH
+<YOUR_SPREADSHEET_ID>==>REDACTED_SPREADSHEET_ID
+<YOUR_SERVICE_ACCOUNT_PATH>==>REDACTED_SERVICE_ACCOUNT_PATH
 EOF
 ) --force
 
@@ -167,10 +167,10 @@ git push --force --tags
 
 ```bash
 # 히스토리에서 민감한 정보가 제거되었는지 확인
-git log -p --all -S 'REDACTED_SPREADSHEET_ID'
+git log -p --all -S '<YOUR_SPREADSHEET_ID>'
 # 결과가 없어야 함
 
-git log -p --all -S '/Users/user/.config/google_sheet'
+git log -p --all -S '<YOUR_SERVICE_ACCOUNT_PATH>'
 # 결과가 없어야 함
 ```
 
