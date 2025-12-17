@@ -1,7 +1,8 @@
 # Google Sheets 설정
+# 환경변수 우선: GOOGLE_SPREADSHEET_ID, SERVICE_ACCOUNT_PATH
 google_sheets:
-  spreadsheet_id: REDACTED_SPREADSHEET_ID
-  service_account_path: REDACTED_SERVICE_ACCOUNT_PATH  # 환경변수 SERVICE_ACCOUNT_PATH로도 설정 가능
+  spreadsheet_id: ""  # 환경변수 GOOGLE_SPREADSHEET_ID 사용 권장
+  service_account_path: ""  # 환경변수 SERVICE_ACCOUNT_PATH 사용 권장
 
 # 로깅 설정
 logging:
