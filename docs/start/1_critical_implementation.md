@@ -38,7 +38,7 @@ if not self.spreadsheet_id:
 ```python
 # 변경 전
 self.service_account_path = os.getenv('SERVICE_ACCOUNT_PATH',
-                                     '/Users/user/.config/google_sheet/service_account_key.json')
+                                     '<REDACTED_SERVICE_ACCOUNT_PATH>')
 
 # 변경 후
 self.service_account_path = os.getenv('SERVICE_ACCOUNT_PATH')
@@ -117,8 +117,8 @@ git clone --mirror git@github.com:kenshin579/auto-trading-journal.git
 
 # 대체 텍스트 파일 생성
 cat > /tmp/replacements.txt << 'EOF'
-1lIZRyQ7WhEU3HZl2b1YAmAMgJNESz2IQq74zba218RQ==>REDACTED_SPREADSHEET_ID
-/Users/user/.config/google_sheet/service_account_key.json==>REDACTED_SERVICE_ACCOUNT_PATH
+<YOUR_SPREADSHEET_ID>==>REDACTED_SPREADSHEET_ID
+<YOUR_SERVICE_ACCOUNT_PATH>==>REDACTED_SERVICE_ACCOUNT_PATH
 EOF
 
 # BFG 실행
