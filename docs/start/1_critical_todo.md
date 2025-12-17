@@ -14,12 +14,12 @@
 
 ## Phase 3: Git 히스토리 정리
 
-- [ ] BFG Repo-Cleaner 설치 (`brew install bfg`)
-- [ ] 미러 클론 생성
-- [ ] BFG로 민감한 정보 대체
-- [ ] 가비지 컬렉션 실행
-- [ ] 강제 푸시
-- [ ] 히스토리 정리 확인 (`git log -p --all -S '민감한텍스트'`)
+- [x] BFG Repo-Cleaner 설치 (`brew install bfg`)
+- [x] 미러 클론 생성
+- [x] BFG로 민감한 정보 대체
+- [x] 가비지 컬렉션 실행
+- [x] 강제 푸시
+- [x] 히스토리 정리 확인 (`git log -p --all -S '민감한텍스트'`)
 
 ## Phase 4: 문서화
 

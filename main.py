@@ -7,6 +7,7 @@ stocks 폴더의 매매일지를 파싱하여 구글 시트에 자동으로 입�
 import argparse
 import asyncio
 import logging
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List
