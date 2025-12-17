@@ -28,13 +28,13 @@ class GoogleSheetsClient:
         """
         self.spreadsheet_id = spreadsheet_id
         
-        # 서비스 계정 경로 설정
+        # 서비스 계정 경로 설정 (환경변수 우선)
         if service_account_path:
             self.service_account_path = service_account_path
         else:
-            # 환경 변수에서 가져오기
-            self.service_account_path = os.getenv('SERVICE_ACCOUNT_PATH', 
-                                                 'REDACTED_SERVICE_ACCOUNT_PATH')
+            self.service_account_path = os.getenv('SERVICE_ACCOUNT_PATH')
+            if not self.service_account_path:
+                raise ValueError("환경변수 SERVICE_ACCOUNT_PATH가 설정되지 않았습니다")
         
         self.service = None
         self._connect()
