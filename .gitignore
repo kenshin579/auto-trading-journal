@@ -24,6 +24,13 @@ bin/
 tmp/
 
 config/config.local.toml
+config/config.yaml
+config/config.local.yaml
+
+# 환경변수 파일
+.env
+.env.local
+.env.*.local
 
 # generated docker tag
 TAG

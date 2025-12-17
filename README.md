@@ -52,14 +52,45 @@ pip install -r requirements.txt
 4. JSON 키 파일을 안전한 위치에 저장 (예: `~/.config/google_sheet/service_account_key.json`)
 5. Google Sheets에 서비스 계정 이메일 공유 (편집자 권한)
 
-### 2. 설정 파일 구성
+### 2. 환경변수 설정
 
-`config/config.yaml` 파일을 생성하고 다음과 같이 설정:
+#### 필수 환경변수
+
+| 변수명 | 설명 | 예시 |
+|--------|------|------|
+| `GOOGLE_SPREADSHEET_ID` | Google Sheets 문서 ID | `1lIZ...18RQ` |
+| `SERVICE_ACCOUNT_PATH` | 서비스 계정 키 파일 경로 | `/path/to/key.json` |
+
+#### 선택 환경변수
+
+| 변수명 | 설명 | 기본값 |
+|--------|------|--------|
+| `OPENAI_API_KEY` | OpenAI API 키 (주식/ETF 분류용) | - |
+
+#### 설정 방법
+
+`~/.zshrc` 또는 `~/.bashrc`에 추가:
+
+```bash
+export GOOGLE_SPREADSHEET_ID="your-spreadsheet-id"
+export SERVICE_ACCOUNT_PATH="/path/to/service_account_key.json"
+export OPENAI_API_KEY="your-openai-api-key"  # 선택
+```
+
+### 3. 설정 파일 구성 (선택)
+
+환경변수 대신 설정 파일을 사용할 수도 있습니다.
+
+`config/config.yaml.example`을 복사하여 `config/config.yaml`을 생성:
+
+```bash
+cp config/config.yaml.example config/config.yaml
+```
 
 ```yaml
 google_sheets:
-  spreadsheet_id: YOUR_SPREADSHEET_ID_HERE
-  service_account_path: /path/to/service_account_key.json
+  spreadsheet_id: "YOUR_SPREADSHEET_ID"  # 또는 환경변수 GOOGLE_SPREADSHEET_ID
+  service_account_path: "/path/to/key.json"  # 또는 환경변수 SERVICE_ACCOUNT_PATH
 
 logging:
   level: INFO
@@ -69,13 +100,7 @@ empty_row_threshold: 100
 stock_type_cache_file: stock_type_cache.json
 ```
 
-### 3. 환경 변수 설정 (선택)
-
-더 나은 주식/ETF 분류를 위해 OpenAI API 키를 설정할 수 있습니다:
-
-```bash
-export OPENAI_API_KEY=your_openai_api_key_here
-```
+> **참고**: 환경변수가 설정 파일보다 우선합니다.
 
 ## 사용 방법
 
