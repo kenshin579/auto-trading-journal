@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Auto Trading Journal is a Python application that automatically parses stock trading logs from markdown files and uploads them to Google Sheets. It supports both domestic (Korean) and foreign stock markets, with intelligent stock/ETF classification using GPT-4 and keyword-based fallback.
+Auto Trading Journal (v2)은 증권사별 CSV 파일을 파싱하여 구글 시트에 자동으로 매매일지를 작성하는 Python 애플리케이션입니다. 국내/해외 주식을 지원하며, 증권사별 CSV 형식을 자동 감지합니다.
 
 ## Quick Start Commands
 
@@ -12,13 +12,10 @@ Auto Trading Journal is a Python application that automatically parses stock tra
 ```bash
 # Create and activate virtual environment
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate
 
-# Install dependencies (editable mode recommended for development)
+# Install dependencies
 pip install -e .
-
-# Alternative: Install from requirements.txt
-# pip install -r requirements.txt
 ```
 
 ### Running the Application
@@ -41,10 +38,8 @@ python main.py --log-level DEBUG
 # Run all tests
 pytest
 
-# Run specific test files
-pytest test_main.py
-pytest modules/test_foreign.py
-pytest modules/test_sheet_manager.py
+# Run parser tests
+pytest tests/test_parsers.py
 
 # Run with verbose output
 pytest -v
@@ -54,77 +49,70 @@ pytest -v
 
 ### Core Components
 
-The system follows a **modular service-oriented architecture** with `StockDataProcessor` as the main orchestrator:
-
 ```
 StockDataProcessor (main.py)
-├── FileParser - Parses MD files from stocks/ directory
-├── DataValidator - Validates trade data integrity
-├── StockClassifier - Classifies stocks vs ETFs (cache → OpenAI → keyword fallback)
-├── SheetManager - Manages Google Sheets operations
-└── ReportGenerator - Generates processing reports
+├── ParserRegistry  - CSV 헤더 기반 파서 자동 감지
+│   ├── MiraeDomesticParser  - 미래에셋 국내
+│   ├── MiraeForeignParser   - 미래에셋 해외
+│   └── HankookDomesticParser - 한국투자증권 국내
+├── SheetWriter     - 시트 생성/중복필터/데이터삽입/색상적용
+├── SummaryGenerator - 요약_월별, 요약_종목별 시트 생성
+└── GoogleSheetsClient - Google Sheets API v4 래퍼
 ```
 
 ### Data Processing Pipeline
 
-1. **File Scanning**: Scan `stocks/` directory for `.md` files
-2. **File Type Detection**: Detect domestic vs foreign based on filename/headers
-3. **Parsing**: Extract trade data using tab-separated format
-4. **Validation**: Verify dates, quantities, amounts (±0.1% or ±10원 tolerance)
-5. **Classification**: Determine stock vs ETF (3-tier: cache → AI → keywords)
-6. **Duplicate Check**: Check against existing sheet data (stock_name + date)
-7. **Batch Insert**: Insert non-duplicate trades with color coding by date
-8. **Report Generation**: Generate summary and detailed reports in `reports/`
+1. **CSV 스캔**: `stocks/{증권사명}/` 하위 CSV 파일 탐색 (`sample/` 제외)
+2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
+3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
+4. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
+5. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
+6. **데이터 삽입**: 신규 거래 일괄 삽입 + 날짜별 색상 적용
+7. **요약 갱신**: 월별/종목별 요약 시트 초기화 후 재작성
 
-### Key Data Models
+### Key Data Model
 
-**BaseTrade** (abstract base class):
-- `stock_name`: 종목명
-- `date`: YYYY-MM-DD format
-- Methods: `to_sheet_row()`, `validate()`
-
-**DomesticTrade** (국내 주식):
-- Fields: `trade_type`, `quantity`, `price`, `total_amount`
-- Output: 8 columns including broker (미래에셋증권)
-
-**ForeignTrade** (해외 주식):
-- Additional fields: `currency`, `ticker`, exchange rates, commission, tax, profit metrics
-- Supports: USD, EUR, JPY, CNY, HKD, GBP, CAD, AUD
-- Output: Same 8-column format as domestic for consistency
+**Trade** (dataclass):
+- 16개 필드: date, trade_type, stock_name, stock_code, quantity, price, amount, currency, exchange_rate, amount_krw, fee, tax, profit, profit_krw, profit_rate, account
+- `to_domestic_row()`: 국내 9컬럼 행 반환
+- `to_foreign_row()`: 해외 15컬럼 행 반환
+- `duplicate_key()`: (date, trade_type, stock_name, quantity, price) 튜플
 
 ### Module Responsibilities
 
-**file_parser.py**:
-- Detects file type (domestic/foreign) from filename or headers
-- Extracts prefix from filename (e.g., "계좌1 국내" → "계좌1")
-- Parses tab-separated markdown tables
-- Returns `TradingLog` dataclass with trades list
+**modules/models.py**:
+- Trade dataclass 정의
+- 국내/해외 행 변환, 중복 키 생성
 
-**stock_classifier.py**:
-- Maintains cache file (`stock_type_cache.json`) with 800+ pre-classified securities
-- Uses OpenAI GPT-4 for AI-based classification (batch processing)
-- Falls back to keyword matching for ETFs
-- Domestic ETF keywords: KODEX, TIGER, SOL, KBSTAR, ARIRANG, etc.
-- Foreign ETF tickers: SPY, QQQ, IWM, JEPI, SCHD, etc. (200+ tickers)
+**modules/parsers/base_parser.py**:
+- BaseParser ABC (can_parse, parse 추상 메서드)
 
-**sheet_manager.py**:
-- Finds target sheets by prefix and file type
-- Manages 8-color palette for date-based row coloring
-- Implements duplicate detection using (stock_name, date) tuples
-- Handles batch insertions with `empty_row_threshold=100`
-- Uses async/await for concurrent operations
+**modules/parsers/mirae_parser.py**:
+- MiraeDomesticParser: 헤더 `일자, 종목명, 기간 중 매수` 감지, 서브헤더 건너뜀
+- MiraeForeignParser: 헤더 `매매일, 통화, 종목번호` 감지, 다중 통화 지원
 
-**data_validator.py**:
-- Validates date formats (YYYY-MM-DD)
-- Checks positive values for quantity and price
-- Verifies total amount calculations (±0.1% or ±10원 tolerance)
-- Validates trade types (매수/매도)
+**modules/parsers/hankook_parser.py**:
+- HankookDomesticParser: 헤더 `매매일자, 종목코드, 매입단가` 감지
+- 쌍따옴표/천단위 쉼표 처리
 
-**google_sheets_client.py**:
-- Wraps Google Sheets API v4
-- Handles authentication via service account
-- Implements async context manager for connection lifecycle
-- Provides batch operations for efficiency
+**modules/parser_registry.py**:
+- detect_parser(): CSV 첫 행 읽어 파서 자동 선택
+
+**modules/sheet_writer.py**:
+- ensure_sheet_exists(): 시트 자동 생성 + 헤더 삽입
+- get_existing_keys(): 중복 체크용 키 셋 반환
+- insert_trades(): 데이터 삽입 + 날짜별 색상 적용
+- 8색 팔레트, 국내/해외 헤더 상수
+
+**modules/summary_generator.py**:
+- generate_monthly_summary(): (연월, 계좌) 기준 집계 → 요약_월별 시트
+- generate_stock_summary(): (종목명, 종목코드, 계좌, 통화) 기준 집계 → 요약_종목별 시트
+- 매 실행 시 시트 초기화 후 재작성
+
+**modules/google_sheets_client.py**:
+- Google Sheets API v4 래퍼
+- 서비스 계정 인증, 비동기 컨텍스트 관리자
+- 시트 생성/삭제, 배치 업데이트, 색상 적용
 
 ## Configuration
 
@@ -137,189 +125,91 @@ google_sheets:
   service_account_path: /path/to/service_account_key.json
 
 logging:
-  level: INFO  # DEBUG, INFO, WARNING, ERROR
-
-batch_size: 10
-empty_row_threshold: 100
-stock_type_cache_file: stock_type_cache.json
+  level: INFO
 ```
 
-**Environment Variables** (optional):
-- `OPENAI_API_KEY`: For enhanced stock/ETF classification
+**Environment Variables** (optional override):
+- `GOOGLE_SPREADSHEET_ID`: 스프레드시트 ID
+- `SERVICE_ACCOUNT_PATH`: 서비스 계정 키 파일 경로
 
 ### Google Sheets Setup
 
-1. Create service account in Google Cloud Console
-2. Enable Google Sheets API
-3. Download JSON key file
-4. Share target spreadsheet with service account email (editor access)
+1. Google Cloud Console에서 서비스 계정 생성
+2. Google Sheets API 활성화
+3. JSON 키 파일 다운로드
+4. 대상 스프레드시트에 서비스 계정 이메일 편집자 권한 부여
 
-### Sheet Naming Convention
+### Sheet Structure
 
-Sheets must follow these patterns for auto-detection:
+하나의 Google Spreadsheet 내에 모든 시트가 탭으로 존재:
+```
+[미래에셋증권_국내계좌] [미래에셋증권_해외계좌] [한국투자증권_국내계좌] [요약_월별] [요약_종목별]
+```
 
-**Domestic** (국내):
-- `{prefix} 국내 주식 매수내역`
-- `{prefix} 국내 주식 매도내역`
-- `{prefix} 국내 ETF 매수내역`
-- `{prefix} 국내 ETF 매도내역`
-
-**Foreign** (해외):
-- `{prefix} 해외 주식 매수내역`
-- `{prefix} 해외 주식 매도내역`
-- `{prefix} 해외 ETF 매수내역`
-- `{prefix} 해외 ETF 매도내역`
-
-Where `{prefix}` is extracted from the filename (e.g., "계좌1", "ISA", "IRP").
+시트 이름 = `{증권사 폴더명}_{CSV 파일명(확장자 제외)}`
 
 ## Input File Format
 
-### Domestic Stock Format
-
-Place files in `stocks/` directory with names like `계좌1 국내.md`:
-
+CSV 파일을 `stocks/{증권사명}/` 디렉토리에 배치:
 ```
-일자	종목명	기간 중 매수			기간 중 매도			매매비용	손익금액	수익률
-		수량	평균단가	매수금액	수량	평균단가	매도금액
-2025/10/17	삼성전자	100	50000	5000000	0	0	0	0	0	0.00
-2025/10/17	KODEX 200	0	0	0	50	20000	1000000	150	50000	5.13
-```
-
-### Foreign Stock Format
-
-Place files with names like `계좌1 해외.md`:
-
-```
-일자	종목명	통화	티커	잔고수량	평균매입환율	거래환율	기간 중 매수				기간 중 매도				거래수수료 + 제세금		합계		손익
-								수량	평균단가	매수금액	매수금액(원)	수량	평균단가	매도금액	매도금액(원)	거래수수료	제세금	합계(원)	평가손익	수익률
-2025/10/15	APPLE INC	USD	AAPL	10	1300.00	1315.50	10	150.00	1500.00	1973250	0	0.00	0.00	0	25.00	0.00	25.00	32888	0.00	0.00
+stocks/
+├── 미래에셋증권/
+│   ├── 국내계좌.csv
+│   └── 해외계좌.csv
+├── 한국투자증권/
+│   └── 국내계좌.csv
+└── sample/          ← 처리 제외
 ```
 
 ## Important Implementation Notes
 
 ### Async/Await Pattern
-The application uses async/await throughout:
-- Always use `async with self.sheet_manager` context manager
-- Sheet operations are async: `await self.sheet_manager.find_target_sheets()`
-- Main entry point: `asyncio.run(processor.run())`
-
-### Error Handling Strategy
-- **OpenAI API failure**: Automatically falls back to keyword-based classification
-- **Missing sheets**: Logs warning but continues processing other files
-- **Invalid trades**: Separated during validation, logged in detailed report
-- **Duplicate trades**: Skipped automatically, counted in summary
+- `async with self.client` 컨텍스트 관리자 사용
+- 시트 작업은 모두 async: `await self.sheet_writer.ensure_sheet_exists()`
+- 진입점: `asyncio.run(processor.run())`
 
 ### Duplicate Detection
-Uses `(stock_name, date)` tuple for uniqueness. Whitespace and case-sensitive - ensure exact matches.
+`(date, trade_type, stock_name, quantity, price)` 5-tuple로 중복 판별
 
 ### Color Coding
-8-color palette cycles based on unique dates. Same date = same color across all rows.
+8색 팔레트가 날짜별로 순환. 같은 날짜 = 같은 색상
 
-### Logging Levels
-- **DEBUG**: API responses, cache hits, detailed parsing steps
-- **INFO**: Processing progress, batch summaries, results
-- **WARNING**: Invalid data, retries, fallback mechanisms
-- **ERROR**: Critical failures requiring attention
+### Adding a New Broker Parser
 
-## Output and Reports
-
-### Console Output
-- Real-time processing progress (`[1/5] 파일 처리 중...`)
-- Category-wise insertion counts (주식_매수: X건)
-- Total processing summary
-
-### Generated Reports
-Located in `reports/` directory:
-- `summary_report_YYYYMMDD_HHMMSS.txt`: High-level statistics
-- `detailed_report_YYYYMMDD_HHMMSS.txt`: Full validation and processing details
-
-### Logs
-Located in `logs/` directory (when using `run.sh`):
-- `run_YYYYMMDD_HHMMSS.log`: Complete execution trace with timestamps
-
-## Development Guidelines
-
-### Code Style
-- Follow PEP 8
-- Use type hints (typing module)
-- Maintain single responsibility principle (SRP)
-- Prefer composition over inheritance
-
-### Adding New Features
-
-**To support a new currency**:
-1. Add to `ForeignTrade.validate()` in `modules/trade_models.py`
-
-**To add new ETF keywords**:
-1. Update `self.etf_keywords` (domestic) or `self.foreign_etf_tickers` in `modules/stock_classifier.py`
-2. Consider adding to cache file directly for faster lookups
-
-**To modify sheet column format**:
-1. Update `to_sheet_row()` method in respective Trade class
-2. Ensure consistency between DomesticTrade and ForeignTrade (both use 8 columns)
-
-### Testing New Parsers
-1. Add test file to `stocks/` directory
-2. Run with `--dry-run` to verify parsing without modifying sheets
-3. Check `reports/detailed_report_*.txt` for validation issues
-4. Use `--log-level DEBUG` to trace processing steps
+1. `modules/parsers/` 에 새 파서 파일 생성
+2. `BaseParser` 상속, `can_parse()` 와 `parse()` 구현
+3. `modules/parsers/__init__.py` 에 export 추가
+4. `modules/parser_registry.py` 의 `PARSERS` 리스트에 등록
+5. `tests/test_parsers.py` 에 테스트 추가
 
 ### Text Encoding (Korean Content)
 
 **Encoding Standard**: All files MUST be UTF-8 encoded (한글 콘텐츠 필수)
 
-**When creating Korean/emoji content with Claude Code**:
-
 1. **Verify encoding after file creation**:
    ```bash
    file -I path/to/file.md
-   # Expected: text/plain; charset=utf-8 ✅
-   # Problem:  application/octet-stream; charset=binary ❌
    ```
 
 2. **If encoding is broken (charset=binary)**:
    ```bash
-   # Option 1: Use Bash heredoc (most reliable)
    cat > file.md << 'EOF'
    한글 내용...
    EOF
-
-   # Option 2: Re-create with Write tool
-   # (usually works, but verify with file -I afterward)
    ```
-
-3. **Prevention tips**:
-   - Write tool generally handles UTF-8 correctly
-   - For very large files (>5000 lines), verify encoding
-   - If using Cursor/VSCode, default encoding should be UTF-8
-   - System locale (`.zshrc` settings) don't affect Claude Code tools
-
-4. **Quick encoding check**:
-   ```bash
-   # Check encoding
-   file -I docs/**/*.md
-
-   # View Korean content
-   cat file.md | head -20
-   ```
-
-**Note**: This project contains Korean content in:
-- Documentation (`docs/`)
-- Markdown blog posts (`contents/`)
-- Code comments and commit messages
 
 ## Troubleshooting
 
-### "OpenAI API를 사용할 수 없습니다"
-Expected behavior when `OPENAI_API_KEY` not set. System automatically falls back to keyword-based classification.
+### "파서 감지 실패"
+CSV 헤더가 지원되는 형식과 일치하지 않음. `--log-level DEBUG`로 헤더 확인.
 
 ### "시트를 찾을 수 없습니다"
-Verify sheet naming matches the patterns above. Check prefix extraction in logs.
+서비스 계정에 스프레드시트 편집 권한이 있는지 확인.
 
 ### Duplicate trades keep inserting
-Ensure exact match of stock_name and date. Check for trailing spaces or date format inconsistencies.
+(date, trade_type, stock_name, quantity, price) 5개 필드의 정확한 일치 여부 확인.
 
 ### Service account authentication errors
-1. Verify JSON key file path in `config/config.yaml`
-2. Confirm service account email has editor access to spreadsheet
-3. Check if Google Sheets API is enabled in Google Cloud Console
+1. `config/config.yaml`의 JSON 키 파일 경로 확인
+2. 서비스 계정 이메일에 편집자 권한 부여 확인
+3. Google Cloud Console에서 Sheets API 활성화 확인

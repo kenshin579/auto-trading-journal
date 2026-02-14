@@ -395,7 +395,51 @@ class GoogleSheetsClient:
             
             logger.info(f"배치 색상 적용 완료: {len(requests)}개 범위")
             return True
-            
+
         except HttpError as e:
             logger.error(f"배치 색상 적용 실패: {e}")
-            return False 
+            return False
+
+    async def create_sheet(self, title: str) -> bool:
+        """새 시트(탭)를 추가합니다
+
+        Args:
+            title: 시트 이름
+
+        Returns:
+            성공 여부
+        """
+        try:
+            requests = [{"addSheet": {"properties": {"title": title}}}]
+            body = {"requests": requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            logger.info(f"시트 '{title}' 생성 완료")
+            return True
+        except HttpError as e:
+            logger.error(f"시트 '{title}' 생성 실패: {e}")
+            return False
+
+    async def clear_sheet(self, sheet_name: str, start_row: int = 2) -> bool:
+        """시트 데이터를 삭제합니다 (헤더 유지)
+
+        Args:
+            sheet_name: 시트 이름
+            start_row: 삭제 시작 행 (기본: 2, 헤더 유지)
+
+        Returns:
+            성공 여부
+        """
+        try:
+            self.service.spreadsheets().values().clear(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"{sheet_name}!A{start_row}:Z",
+                body={}
+            ).execute()
+            logger.info(f"시트 '{sheet_name}' 데이터 삭제 완료 (행 {start_row}부터)")
+            return True
+        except HttpError as e:
+            logger.error(f"시트 '{sheet_name}' 데이터 삭제 실패: {e}")
+            return False
