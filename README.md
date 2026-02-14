@@ -1,339 +1,227 @@
-# Auto Trading Journal
+# Auto Trading Journal (v2)
 
-주식 매매일지를 마크다운 파일에서 자동으로 파싱하여 구글 시트에 입력하는 시스템입니다.
+증권사별 CSV 파일을 파싱하여 구글 시트에 자동으로 매매일지를 작성하는 Python 애플리케이션입니다.
 
 ## 개요
 
-수동으로 거래 내역을 입력하는 번거로움을 없애고, 정확한 매매 기록을 자동으로 관리할 수 있도록 도와주는 Python 애플리케이션입니다.
+증권사에서 다운로드한 CSV 파일을 자동으로 파싱하여 구글 시트에 매매일지를 작성합니다. 증권사별 CSV 형식을 자동 감지하며, 대시보드를 통해 투자 현황을 한눈에 파악할 수 있습니다.
 
 ### 주요 기능
 
-- **자동 파싱**: 탭으로 구분된 마크다운 파일에서 거래 데이터 자동 추출
-- **지능형 분류**: GPT-4 API와 키워드 기반 분류를 통한 주식/ETF 자동 구분
-- **중복 방지**: 종목명과 날짜를 기준으로 중복 거래 자동 감지 및 제외
-- **데이터 검증**: 날짜, 수량, 금액 등의 유효성 자동 검증
-- **시각적 구분**: 날짜별 배경색 자동 지정으로 거래 시각화
-- **다중 계좌 지원**: 일반 계좌, ISA, IRP, 연금 계좌 등 여러 계좌 동시 관리
+- **CSV 자동 파싱**: 증권사별 CSV 헤더를 분석하여 파서 자동 선택
+- **다중 증권사 지원**: 미래에셋증권(국내/해외), 한국투자증권(국내)
+- **중복 방지**: (날짜, 매매유형, 종목명, 수량, 단가) 5-tuple 기반 중복 감지
+- **대시보드**: 포트폴리오 요약, 월별 성과, 종목별 현황, 투자 지표 자동 생성
+- **섹터 분류**: OpenAI 기반 종목 섹터 자동 분류 및 투자비중 분석
+- **다중 계좌 지원**: 주식, ISA, IRP, 연금저축 등 여러 계좌 동시 관리
 - **국내외 거래 지원**: 국내 주식/ETF 및 해외 주식/ETF (다중 통화 지원)
-- **상세 리포트**: 처리 결과 요약 및 상세 리포트 자동 생성
 
 ## 시스템 요구사항
 
-- Python 3.8 이상
+- Python 3.10 이상
 - Google Sheets API 접근 권한
-- (선택) OpenAI API 키 (향상된 분류를 위해)
+- (선택) OpenAI API 키 (섹터 분류용)
 
 ## 설치
 
-1. 저장소 클론:
 ```bash
-git clone https://github.com/your-username/auto-trading-journal.git
+# 저장소 클론
+git clone https://github.com/kenshin579/auto-trading-journal.git
 cd auto-trading-journal
-```
 
-2. 가상환경 생성 및 활성화:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-```
+# 가상환경 생성 및 활성화
+python3 -m venv .venv
+source .venv/bin/activate
 
-3. 의존성 설치:
-```bash
-pip install -r requirements.txt
+# 의존성 설치
+pip install -e .
 ```
 
 ## 설정
 
-### 1. Google Sheets API 설정 
+### 1. Google Sheets API 설정
 
 1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성
 2. Google Sheets API 활성화
 3. 서비스 계정 생성 및 JSON 키 파일 다운로드
-4. JSON 키 파일을 안전한 위치에 저장 (예: `~/.config/google_sheet/service_account_key.json`)
-5. Google Sheets에 서비스 계정 이메일 공유 (편집자 권한)
+4. 대상 스프레드시트에 서비스 계정 이메일 편집자 권한 부여
 
-### 2. 환경변수 설정
+### 2. 설정 파일
 
-#### 필수 환경변수
-
-| 변수명 | 설명 | 예시 |
-|--------|------|------|
-| `GOOGLE_SPREADSHEET_ID` | Google Sheets 문서 ID | `1lIZ...18RQ` |
-| `SERVICE_ACCOUNT_PATH` | 서비스 계정 키 파일 경로 | `/path/to/key.json` |
-
-#### 선택 환경변수
-
-| 변수명 | 설명 | 기본값 |
-|--------|------|--------|
-| `OPENAI_API_KEY` | OpenAI API 키 (주식/ETF 분류용) | - |
-
-#### 설정 방법
-
-`~/.zshrc` 또는 `~/.bashrc`에 추가:
-
-```bash
-export GOOGLE_SPREADSHEET_ID="your-spreadsheet-id"
-export SERVICE_ACCOUNT_PATH="/path/to/service_account_key.json"
-export OPENAI_API_KEY="your-openai-api-key"  # 선택
-```
-
-### 3. 설정 파일 구성 (선택)
-
-환경변수 대신 설정 파일을 사용할 수도 있습니다.
-
-`config/config.yaml.example`을 복사하여 `config/config.yaml`을 생성:
-
-```bash
-cp config/config.yaml.example config/config.yaml
-```
+`config/config.yaml`:
 
 ```yaml
 google_sheets:
-  spreadsheet_id: "YOUR_SPREADSHEET_ID"  # 또는 환경변수 GOOGLE_SPREADSHEET_ID
-  service_account_path: "/path/to/key.json"  # 또는 환경변수 SERVICE_ACCOUNT_PATH
+  spreadsheet_id: YOUR_SPREADSHEET_ID
+  service_account_path: /path/to/service_account_key.json
 
 logging:
   level: INFO
-
-batch_size: 10
-empty_row_threshold: 100
-stock_type_cache_file: stock_type_cache.json
 ```
 
-> **참고**: 환경변수가 설정 파일보다 우선합니다.
+환경변수로도 설정 가능합니다 (설정 파일보다 우선):
+
+| 변수명 | 설명 |
+|--------|------|
+| `GOOGLE_SPREADSHEET_ID` | Google Sheets 문서 ID |
+| `SERVICE_ACCOUNT_PATH` | 서비스 계정 키 파일 경로 |
+| `OPENAI_API_KEY` | OpenAI API 키 (섹터 분류용, 선택) |
 
 ## 사용 방법
 
-### 1. 매매일지 파일 준비
+### 1. CSV 파일 준비
 
-`stocks/` 디렉토리에 매매일지 마크다운 파일을 배치합니다.
-
-**국내 주식 형식 예시** (`stocks/계좌1 국내.md`):
+증권사에서 다운로드한 CSV 파일을 `input/{증권사명}/` 디렉토리에 배치합니다.
 
 ```
-일자	종목명	기간 중 매수			기간 중 매도			매매비용	손익금액	수익률
-		수량	평균단가	매수금액	수량	평균단가	매도금액
-2025/10/17	삼성전자	100	50000	5000000	0	0	0	0	0	0.00
-2025/10/17	KODEX 200	0	0	0	50	20000	1000000	150	50000	5.13
+input/
+├── 미래에셋증권/
+│   ├── 주식1.csv
+│   ├── 주식2.csv
+│   ├── 해외주식1.csv
+│   ├── ISA.csv
+│   ├── IRP.csv
+│   ├── 연금저축1.csv
+│   └── 연금저축2.csv
+└── 한국투자증권/
+    └── 국내계좌.csv
 ```
 
-**해외 주식 형식 예시** (`stocks/계좌1 해외.md`):
-
-```
-일자	종목명	통화	티커	잔고수량	평균매입환율	거래환율	기간 중 매수				기간 중 매도				거래수수료 + 제세금		합계		손익
-								수량	평균단가	매수금액	매수금액(원)	수량	평균단가	매도금액	매도금액(원)	거래수수료	제세금	합계(원)	평가손익	수익률
-2025/10/15	APPLE INC	USD	AAPL	10	1300.00	1315.50	10	150.00	1500.00	1973250	0	0.00	0.00	0	25.00	0.00	25.00	32888	0.00	0.00
-```
+> **참고**: CSV 파일이 EUC-KR 인코딩인 경우 UTF-8로 변환이 필요합니다.
+> ```bash
+> iconv -f euc-kr -t utf-8 input.csv > input_utf8.csv
+> ```
 
 ### 2. 실행
 
-**기본 실행**:
 ```bash
-./run.sh
-```
-
-또는 직접 Python으로:
-```bash
+# 기본 실행
 python main.py
-```
 
-**드라이런 모드** (실제로 시트를 수정하지 않고 미리보기):
-```bash
+# 드라이런 모드 (시트 수정 없이 미리보기)
 python main.py --dry-run
-```
 
-**디버그 로깅**:
-```bash
+# 디버그 로깅
 python main.py --log-level DEBUG
+
+# 실행 스크립트 (타임스탬프 및 로깅 포함)
+./run.sh
 ```
 
 ### 3. 결과 확인
 
-- **콘솔 출력**: 처리 진행 상황과 결과 요약
-- **구글 시트**: 자동으로 입력된 거래 내역 (날짜별 색상 구분)
-- **리포트 파일**: `reports/` 디렉토리에 자동 생성
-  - `summary_report_YYYYMMDD_HHMMSS.txt`: 요약 리포트
-  - `detailed_report_YYYYMMDD_HHMMSS.txt`: 상세 리포트
+구글 시트에 자동으로 생성되는 탭:
+
+```
+[미래에셋증권_주식1] [미래에셋증권_해외주식1] [미래에셋증권_ISA] ... [대시보드]
+```
+
+- 시트 이름 = `{증권사 폴더명}_{CSV 파일명(확장자 제외)}`
+- **대시보드**: 포트폴리오 요약, 월별 성과, 종목별 현황, 투자 지표
 
 ## 프로젝트 구조
 
 ```
 auto-trading-journal/
-├── main.py                      # 메인 진입점
-├── test_main.py                 # 통합 테스트
-├── run.sh                       # 실행 스크립트 (로깅 포함)
-├── pyproject.toml               # 프로젝트 메타데이터
-├── requirements.txt             # Python 의존성
+├── main.py                          # 메인 진입점
+├── run.sh                           # 실행 스크립트
+├── pyproject.toml                   # 프로젝트 메타데이터
 ├── config/
-│   └── config.yaml              # 설정 파일
-├── modules/                     # 핵심 모듈
-│   ├── trade_models.py          # 거래 데이터 모델
-│   ├── file_parser.py           # 파일 파싱
-│   ├── google_sheets_client.py  # Google Sheets API 클라이언트
-│   ├── stock_classifier.py      # 주식/ETF 분류
-│   ├── data_validator.py        # 데이터 검증
-│   ├── sheet_manager.py         # 시트 관리
-│   └── report_generator.py      # 리포트 생성
-├── stocks/                      # 매매일지 파일
-├── reports/                     # 생성된 리포트
-├── logs/                        # 실행 로그
-├── docs/                        # 문서
-│   ├── prd.md                   # 제품 요구사항 명세서
-│   └── foreign_stock_design.md  # 해외 주식 설계 문서
-└── stock_type_cache.json        # 주식 분류 캐시
+│   ├── config.yaml                  # 설정 파일
+│   └── sector_cache.json            # 섹터 분류 캐시
+├── modules/
+│   ├── models.py                    # Trade 데이터 모델
+│   ├── parser_registry.py           # CSV 파서 자동 감지
+│   ├── parsers/
+│   │   ├── base_parser.py           # 파서 추상 클래스
+│   │   ├── mirae_parser.py          # 미래에셋증권 (국내/해외)
+│   │   └── hankook_parser.py        # 한국투자증권 (국내)
+│   ├── sheet_writer.py              # 시트 생성/중복필터/데이터삽입
+│   ├── summary_generator.py         # 대시보드 시트 생성
+│   ├── sector_classifier.py         # OpenAI 섹터 분류
+│   └── google_sheets_client.py      # Google Sheets API v4 래퍼
+├── tests/
+│   └── test_parsers.py              # 파서 테스트
+├── input/                           # CSV 입력 파일 (gitignore)
+└── docs/                            # 문서
 ```
 
 ## 아키텍처
 
-시스템은 다음과 같은 모듈형 서비스 아키텍처로 구성되어 있습니다:
-
 ```
-┌─────────────────────────────────────────┐
-│     StockDataProcessor (메인 조정자)    │
-└──────────┬──────────────────────────────┘
-           │
-    ┌──────┼──────┬──────┬──────┬──────┐
-    ▼      ▼      ▼      ▼      ▼      ▼
-  파일   데이터  주식   시트   리포트  Google
-  파서   검증기  분류기  관리자  생성기  Sheets
+StockDataProcessor (main.py)
+├── ParserRegistry     CSV 헤더 기반 파서 자동 감지
+│   ├── MiraeDomesticParser    미래에셋 국내
+│   ├── MiraeForeignParser     미래에셋 해외
+│   └── HankookDomesticParser  한국투자증권 국내
+├── SheetWriter        시트 생성 / 중복 필터 / 데이터 삽입
+├── SummaryGenerator   대시보드 시트 생성
+├── SectorClassifier   OpenAI 섹터 분류
+└── GoogleSheetsClient Google Sheets API v4 래퍼
 ```
 
 ### 데이터 처리 파이프라인
 
-1. **파일 파싱**: MD 파일에서 거래 데이터 추출
-2. **데이터 검증**: 날짜, 수량, 금액 등 유효성 검사
-3. **주식 분류**: 캐시 → OpenAI API → 키워드 기반 순차 분류
-4. **중복 확인**: 기존 시트와 비교하여 중복 거래 제거
-5. **일괄 삽입**: 신규 거래 내역 구글 시트에 삽입
-6. **리포트 생성**: 처리 결과 요약 및 상세 리포트 생성
+1. **CSV 스캔**: `input/{증권사명}/` 하위 CSV 파일 탐색 (`sample/` 제외)
+2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
+3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
+4. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
+5. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
+6. **데이터 삽입**: 신규 거래 일괄 삽입
+7. **대시보드 갱신**: 포트폴리오 요약, 월별/종목별 현황, 투자 지표 재작성
 
-## 지원하는 거래 유형
+### 대시보드 구성
 
-### 국내 거래
-- 국내 주식 (KRX)
-- 국내 ETF (KODEX, TIGER, SOL, KBSTAR, ARIRANG, HANARO, ACE 등)
+| 섹션 | 내용 |
+|------|------|
+| 포트폴리오 요약 | 총 매수/매도 금액, 실현손익, 수익률, 승률 |
+| 월별 성과 | 연월별 매수/매도 건수, 금액, 실현손익 |
+| 종목별 현황 | 종목별 매수/매도 수량, 금액, 손익, 투자비중 |
+| 투자 지표 | 계좌별/통화별/섹터별 투자비중, 수익/손실 Top 10 |
 
-### 해외 거래
-- 해외 주식 (미국, 유럽, 일본, 중국, 홍콩 등)
-- 해외 ETF (SPY, QQQ, IWM, VTI, TLT, GLD, JEPI 등)
-- 지원 통화: USD, EUR, JPY, CNY, HKD, GBP, CAD, AUD
+## 새 증권사 파서 추가
 
-## 주요 기능 상세
+1. `modules/parsers/`에 새 파서 파일 생성
+2. `BaseParser` 상속, `can_parse()`와 `parse()` 구현
+3. `modules/parsers/__init__.py`에 export 추가
+4. `modules/parser_registry.py`의 `PARSERS` 리스트에 등록
+5. `tests/test_parsers.py`에 테스트 추가
 
-### 지능형 주식/ETF 분류
-
-3단계 분류 전략:
-1. **캐시 조회**: 이미 분류된 800+ 증권 즉시 반환
-2. **AI 분류**: GPT-4를 통한 정확한 분류
-3. **키워드 기반**: ETF 키워드 매칭 (국내 100+, 해외 200+ 티커)
-
-### 중복 방지 메커니즘
-
-- (종목명 + 날짜) 조합으로 중복 확인
-- 이미 입력된 거래는 자동으로 건너뜀
-- 중복 건너뛴 거래 리포트에 기록
-
-### 데이터 검증
-
-- 날짜 형식 검증 (YYYY-MM-DD)
-- 수량, 가격 양수 검증
-- 총액 계산 검증 (±0.1% 또는 ±10원 ���용)
-- 거래 유형 검증 (매수/매도)
-
-### 시각적 조직화
-
-- 8색 팔레트를 사용한 날짜별 배경색 지정
-- 같은 날짜의 거래는 동일한 색상
-- 거래 날짜를 시각적으로 빠르게 구분
-
-## 개발
-
-### 테스트 실행
+## 테스트
 
 ```bash
-pytest test_main.py
-pytest modules/test_foreign.py
-pytest modules/test_sheet_manager.py
+# 전체 테스트
+pytest
+
+# 파서 테스트
+pytest tests/test_parsers.py
+
+# 상세 출력
+pytest -v
 ```
-
-### 로깅 레벨
-
-- **DEBUG**: 상세한 작업 추적, API 응답
-- **INFO**: 처리 진행 상황, 배치 요약
-- **WARNING**: 잘못된 데이터, 재시도, 폴백
-- **ERROR**: 주의가 필요한 치명적 오류
-
-### 코드 스타일
-
-- PEP 8 준수
-- Type hints 사용
-- Async/await 패턴 활용
-- 단일 책임 원칙 (SRP)
-
-## 의존성
-
-주요 라이브러리:
-- `google-api-python-client`: Google Sheets API 접근
-- `google-auth`: Google 인증
-- `openai`: GPT-4 API (선택)
-- `pyyaml`: YAML 설정 파싱
-- `colorlog`: 컬러 콘솔 로깅
-- `ujson`: 빠른 JSON 처리
-- `python-dateutil`: 날짜/시간 유틸리티
-
-전체 의존성은 [requirements.txt](requirements.txt)를 참조하세요.
-
-## 문서
-
-- [PRD (제품 요구사항 명세서)](docs/prd.md) - 상세한 기능 명세 및 요구사항
-- [해외 주식 설계 문서](docs/foreign_stock_design.md) - 해외 주식 기능 설계
-
-## 향후 개선 계획
-
-- [ ] 실시간 모니터링 대시보드
-- [ ] 자동 손익 계산 및 차트
-- [ ] 세금 계산 지원
-- [ ] 다중 증권사 형식 지원
-- [ ] 웹 UI 구성 인터페이스
-- [ ] 완료 시 이메일 알림
-- [ ] CI/CD 파이프라인 구축
-- [ ] Docker 컨테이너화
 
 ## 문제 해결
 
-### OpenAI API 오류
-
-OpenAI API를 사용할 수 없는 경우, 시스템은 자동으로 키워드 기반 분류로 폴백합니다.
-
-```
-WARNING - OpenAI API를 사용할 수 없습니다. 키워드 기반 분류를 사용합니다.
-```
+### "파서 감지 실패"
+CSV 헤더가 지원되는 형식과 일치하지 않습니다. `--log-level DEBUG`로 헤더를 확인하세요.
 
 ### Google Sheets API 인증 오류
+1. `config/config.yaml`의 JSON 키 파일 경로 확인
+2. 서비스 계정 이메일에 편집자 권한 부여 확인
+3. Google Cloud Console에서 Sheets API 활성화 확인
 
-서비스 계정 JSON 파일 경로를 확인하고, 해당 서비스 계정에 Google Sheets 편집 권한이 있는지 확인하세요.
+### Rate Limit 오류 (429)
+Google Sheets API는 분당 60회 쓰기 제한이 있습니다. 1~2분 후 재실행하세요.
 
 ### 중복 거래가 계속 입력됨
+`(date, trade_type, stock_name, quantity, price)` 5개 필드의 정확한 일치 여부를 확인하세요.
 
-종목명과 날짜가 정확히 일치하는지 확인하세요. 공백이나 대소문자 차이가 있으면 중복으로 인식되지 않습니다.
-
-## 기여
-
-기여는 언제나 환영합니다! Pull Request를 보내주세요.
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+### CSV 인코딩 깨짐
+증권사 다운로드 CSV가 EUC-KR인 경우 UTF-8로 변환 후 사용하세요.
 
 ## 라이선스
 
-이 프로젝트는 MIT 라이선스를 따릅니다.
-
-## 연락처
-
-프로젝트 링크: [https://github.com/your-username/auto-trading-journal](https://github.com/your-username/auto-trading-journal)
+MIT License
 
 ---
 

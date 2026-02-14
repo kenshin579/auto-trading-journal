@@ -315,9 +315,9 @@ class SummaryGenerator:
         """대시보드 시트에 숫자 포맷 적용"""
         # 섹션 1: 포트폴리오 요약 (행 2)
         portfolio_formats = [
-            {'col': 2, 'pattern': '#,##0'},       # B: 총 매수금액
-            {'col': 3, 'pattern': '#,##0'},       # C: 총 매도금액
-            {'col': 4, 'pattern': '#,##0'},       # D: 총 실현손익
+            {'col': 2, 'pattern': '₩#,##0'},     # B: 총 매수금액
+            {'col': 3, 'pattern': '₩#,##0'},     # C: 총 매도금액
+            {'col': 4, 'pattern': '₩#,##0'},     # D: 총 실현손익
             {'col': 5, 'pattern': '0.00%', 'type': 'PERCENT'},  # E: 총 수익률
             {'col': 6, 'pattern': '#,##0'},       # F: 총 거래건수
             {'col': 7, 'pattern': '0.00%', 'type': 'PERCENT'},  # G: 승률
@@ -331,10 +331,10 @@ class SummaryGenerator:
         if monthly_data_end > monthly_start:
             monthly_formats = [
                 {'col': 3, 'pattern': '#,##0'},       # C: 매수건수
-                {'col': 4, 'pattern': '#,##0'},       # D: 매수금액
+                {'col': 4, 'pattern': '₩#,##0'},     # D: 매수금액
                 {'col': 5, 'pattern': '#,##0'},       # E: 매도건수
-                {'col': 6, 'pattern': '#,##0'},       # F: 매도금액
-                {'col': 7, 'pattern': '#,##0'},       # G: 실현손익
+                {'col': 6, 'pattern': '₩#,##0'},     # F: 매도금액
+                {'col': 7, 'pattern': '₩#,##0'},     # G: 실현손익
                 {'col': 8, 'pattern': '0.00%', 'type': 'PERCENT'},  # H: 수익률
             ]
             await self.client.apply_number_format_to_columns(
@@ -346,10 +346,10 @@ class SummaryGenerator:
         if stock_data_end > stock_start:
             stock_formats = [
                 {'col': 5, 'pattern': '#,##0'},       # E: 총매수수량
-                {'col': 6, 'pattern': '#,##0'},       # F: 총매수금액
+                {'col': 6, 'pattern': '₩#,##0'},     # F: 총매수금액
                 {'col': 7, 'pattern': '#,##0'},       # G: 총매도수량
-                {'col': 8, 'pattern': '#,##0'},       # H: 총매도금액
-                {'col': 9, 'pattern': '#,##0'},       # I: 실현손익
+                {'col': 8, 'pattern': '₩#,##0'},     # H: 총매도금액
+                {'col': 9, 'pattern': '₩#,##0'},     # I: 실현손익
                 {'col': 10, 'pattern': '0.00%', 'type': 'PERCENT'},  # J: 수익률
                 {'col': 11, 'pattern': '0.00%', 'type': 'PERCENT'},  # K: 투자비중
             ]
