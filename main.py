@@ -17,6 +17,7 @@ import yaml
 from modules.models import Trade
 from modules.parser_registry import detect_parser
 from modules.google_sheets_client import GoogleSheetsClient
+from modules.sector_classifier import SectorClassifier
 from modules.sheet_writer import SheetWriter
 from modules.summary_generator import SummaryGenerator
 
@@ -58,7 +59,24 @@ class StockDataProcessor:
         service_account_path = config.get("google_sheets", {}).get("service_account_path")
         self.client = GoogleSheetsClient(self.spreadsheet_id, service_account_path)
         self.sheet_writer = SheetWriter(self.client)
-        self.summary_generator = SummaryGenerator(self.client, self.sheet_writer)
+
+        # OpenAI 섹터 분류 (optional)
+        sector_classifier = None
+        openai_api_key = os.getenv("STOCK_DATA_OPENAI_API_KEY")
+        if openai_api_key:
+            openai_config = config.get("openai", {})
+            sector_classifier = SectorClassifier(
+                api_key=openai_api_key,
+                model=openai_config.get("model", "gpt-4o-mini"),
+                cache_path=openai_config.get("sector_cache_file", "config/sector_cache.json"),
+            )
+            logger.info("OpenAI 섹터 분류 활성화")
+        else:
+            logger.info("STOCK_DATA_OPENAI_API_KEY 미설정 → 섹터 분류 비활성화")
+
+        self.summary_generator = SummaryGenerator(
+            self.client, self.sheet_writer, sector_classifier
+        )
 
     def scan_csv_files(self) -> List[Tuple[str, str, Path]]:
         """input/ 하위 CSV 파일 스캔

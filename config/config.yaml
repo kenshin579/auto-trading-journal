@@ -8,7 +8,13 @@ google_sheets:
 logging:
   level: INFO
 
+# OpenAI 설정 (섹터 분류, optional)
+# 환경변수 STOCK_DATA_OPENAI_API_KEY 설정 시 활성화
+openai:
+  model: gpt-4o-mini
+  sector_cache_file: config/sector_cache.json
+
 # 처리 설정
 batch_size: 10
 empty_row_threshold: 100
-stock_type_cache_file: stock_type_cache.json 
+stock_type_cache_file: stock_type_cache.json
