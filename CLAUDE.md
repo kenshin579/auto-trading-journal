@@ -161,6 +161,33 @@ input/
 └── sample/          ← 처리 제외
 ```
 
+## Git Branch Policy
+
+**NEVER commit directly to main/master branch.** Always use feature branches.
+
+1. **Create feature branch before making changes**:
+   ```bash
+   git checkout main && git pull origin main
+   git checkout -b feature/{issue-number}-{feature-name}
+   ```
+
+2. **Branch naming conventions**:
+   - `feature/{issue-number}-{name}` or `feat/{name}` - New features
+   - `fix/{issue-number}-{name}` or `fix/{name}` - Bug fixes
+   - `chore/{name}` - Maintenance tasks
+
+3. **After completing work, create PR via `gh` CLI** (not GitHub MCP):
+   ```bash
+   gh pr create --assignee kenshin579 --title "type: 작업 요약" --body "$(cat <<'EOF'
+   ## Summary
+   - 변경 사항
+
+   ## Test plan
+   - [ ] 테스트 항목
+   EOF
+   )"
+   ```
+
 ## Important Implementation Notes
 
 ### Async/Await Pattern
