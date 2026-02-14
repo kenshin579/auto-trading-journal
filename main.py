@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 주식 매매일지 구글 시트 자동 입력 스크립트 (v2)
-stocks/ 폴더의 증권사별 CSV를 파싱하여 구글 시트에 자동으로 입력합니다.
+input/ 폴더의 증권사별 CSV를 파싱하여 구글 시트에 자동으로 입력합니다.
 """
 
 import argparse
@@ -61,19 +61,19 @@ class StockDataProcessor:
         self.summary_generator = SummaryGenerator(self.client, self.sheet_writer)
 
     def scan_csv_files(self) -> List[Tuple[str, str, Path]]:
-        """stocks/ 하위 CSV 파일 스캔
+        """input/ 하위 CSV 파일 스캔
 
         Returns:
             [(증권사명, 계좌유형, 파일경로), ...]
         """
-        stocks_dir = Path("stocks")
-        if not stocks_dir.exists():
-            logger.warning("stocks/ 디렉토리가 존재하지 않습니다")
+        input_dir = Path("input")
+        if not input_dir.exists():
+            logger.warning("input/ 디렉토리가 존재하지 않습니다")
             return []
 
         results = []
-        for broker_dir in sorted(stocks_dir.iterdir()):
-            if not broker_dir.is_dir() or broker_dir.name == "sample":
+        for broker_dir in sorted(input_dir.iterdir()):
+            if not broker_dir.is_dir():
                 continue
             for csv_file in sorted(broker_dir.glob("*.csv")):
                 account_type = csv_file.stem  # "국내계좌" or "해외계좌"

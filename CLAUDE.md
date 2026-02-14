@@ -62,7 +62,7 @@ StockDataProcessor (main.py)
 
 ### Data Processing Pipeline
 
-1. **CSV 스캔**: `stocks/{증권사명}/` 하위 CSV 파일 탐색 (`sample/` 제외)
+1. **CSV 스캔**: `input/{증권사명}/` 하위 CSV 파일 탐색 (`sample/` 제외)
 2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
 3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
 4. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
@@ -150,9 +150,9 @@ logging:
 
 ## Input File Format
 
-CSV 파일을 `stocks/{증권사명}/` 디렉토리에 배치:
+CSV 파일을 `input/{증권사명}/` 디렉토리에 배치:
 ```
-stocks/
+input/
 ├── 미래에셋증권/
 │   ├── 국내계좌.csv
 │   └── 해외계좌.csv
