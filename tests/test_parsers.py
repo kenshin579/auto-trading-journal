@@ -8,7 +8,7 @@ from modules.parser_registry import detect_parser
 from modules.parsers.mirae_parser import MiraeDomesticParser, MiraeForeignParser
 from modules.parsers.hankook_parser import HankookDomesticParser
 
-SAMPLE_DIR = Path(__file__).parent.parent / "stocks" / "sample"
+SAMPLE_DIR = Path(__file__).parent.parent / "sample"
 
 
 class TestMiraeDomesticParser:
