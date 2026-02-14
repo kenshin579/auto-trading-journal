@@ -1,8 +1,9 @@
-"""Google Sheets 시트 쓰기 모듈"""
+"""Google Sheets 시트 쓰기/읽기 모듈"""
 
 import logging
+import unicodedata
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .google_sheets_client import GoogleSheetsClient
 from .models import Trade
@@ -274,6 +275,91 @@ class SheetWriter:
                     sheet_name, formats, range_start, range_end
                 )
 
+    # ── 시트 읽기 ──────────────────────────────────────────────
+
+    async def read_all_trades(self) -> List[Trade]:
+        """모든 매매일지 시트에서 Trade 리스트를 읽어 반환.
+
+        헤더 행(1행)을 검증하여 매매일지 시트만 식별.
+        DOMESTIC_HEADERS 일치 → 국내, FOREIGN_HEADERS 일치 → 해외.
+        NFD/NFC 유니코드 중복 시트는 하나만 읽음.
+        """
+        sheets = await self.client.list_sheets()
+        all_trades: List[Trade] = []
+        seen_names: Set[str] = set()
+
+        for sheet_name in sheets:
+            # NFD/NFC 유니코드 중복 시트 방지
+            normalized_name = unicodedata.normalize("NFC", sheet_name)
+            if normalized_name in seen_names:
+                logger.info(f"시트 '{sheet_name}' 스킵 (유니코드 중복: {normalized_name})")
+                continue
+            seen_names.add(normalized_name)
+
+            header_data = await self.client.get_sheet_data(sheet_name, "A1:O1")
+            header_row = _extract_header_row(header_data)
+            if not header_row:
+                continue
+
+            if header_row == DOMESTIC_HEADERS:
+                is_foreign = False
+            elif header_row == FOREIGN_HEADERS:
+                is_foreign = True
+            else:
+                logger.debug(f"시트 '{sheet_name}' 스킵 (매매일지 헤더 불일치)")
+                continue
+
+            trades = await self._read_trades_from_sheet(
+                sheet_name, is_foreign, account_name=normalized_name
+            )
+            all_trades.extend(trades)
+            logger.info(
+                f"시트 '{normalized_name}'에서 {len(trades)}건 읽음 "
+                f"({'해외' if is_foreign else '국내'})"
+            )
+
+        logger.info(f"전체 매매일지 시트에서 총 {len(all_trades)}건 읽음")
+        return all_trades
+
+    async def _read_trades_from_sheet(
+        self, sheet_name: str, is_foreign: bool,
+        account_name: Optional[str] = None,
+    ) -> List[Trade]:
+        """개별 매매일지 시트에서 Trade 리스트 반환.
+
+        Args:
+            sheet_name: API 호출에 사용할 원본 시트 이름
+            is_foreign: 해외계좌 여부
+            account_name: Trade.account에 설정할 이름 (None이면 sheet_name 사용)
+        """
+        account = account_name or sheet_name
+        try:
+            data = await self.client.get_raw_grid_data(sheet_name, "A2:O10000")
+            if not data or "sheets" not in data:
+                return []
+
+            rows = data["sheets"][0]["data"][0].get("rowData", [])
+            trades: List[Trade] = []
+            min_cols = 15 if is_foreign else 9
+
+            for row in rows:
+                values = row.get("values", [])
+                if len(values) < min_cols:
+                    continue
+
+                date_val = values[0].get("formattedValue", "")
+                if not date_val:
+                    continue
+
+                trade = _row_to_trade(values, account, is_foreign, date_val)
+                if trade:
+                    trades.append(trade)
+
+            return trades
+
+        except Exception as e:
+            logger.error(f"시트 데이터 읽기 실패 ({sheet_name}): {e}")
+            return []
 
 
 def _normalize_num(v) -> str:
@@ -314,3 +400,96 @@ def _col_letter(col_num: int) -> str:
         result = chr(65 + col_num % 26) + result
         col_num //= 26
     return result
+
+
+# ── 시트 읽기 헬퍼 ──────────────────────────────────────────
+
+
+def _get_num(cell: Dict, default: float = 0.0) -> float:
+    """effectiveValue에서 숫자 추출."""
+    ev = cell.get("effectiveValue", {})
+    v = ev.get("numberValue")
+    return float(v) if v is not None else default
+
+
+def _get_str(cell: Dict, default: str = "") -> str:
+    """effectiveValue에서 문자열 추출."""
+    ev = cell.get("effectiveValue", {})
+    v = ev.get("stringValue")
+    return str(v) if v is not None else default
+
+
+def _extract_header_row(data: Dict) -> List[str]:
+    """get_sheet_data() 결과에서 1행 헤더를 문자열 리스트로 추출."""
+    if not data or "sheets" not in data:
+        return []
+    sheets_data = data.get("sheets", [])
+    if not sheets_data:
+        return []
+    row_data = sheets_data[0].get("data", [{}])[0].get("rowData", [])
+    if not row_data:
+        return []
+    values = row_data[0].get("values", [])
+    return [
+        (cell.get("effectiveValue", {}).get("stringValue") or "")
+        for cell in values
+    ]
+
+
+def _row_to_trade(
+    values: List[Dict], sheet_name: str, is_foreign: bool, date_val: str
+) -> Optional[Trade]:
+    """시트 행 데이터 → Trade 객체 변환.
+
+    Args:
+        values: get_raw_grid_data()의 rowData.values 리스트
+        sheet_name: 시트 이름 (account 필드로 사용)
+        is_foreign: 해외계좌 여부
+        date_val: formattedValue에서 추출한 날짜 문자열
+    """
+    try:
+        if is_foreign:
+            # 해외: A~O (15컬럼)
+            return Trade(
+                date=date_val,
+                trade_type=_get_str(values[1]),
+                stock_name=_get_str(values[4]),
+                stock_code=_get_str(values[3]),
+                quantity=_get_num(values[5]),
+                price=_get_num(values[6]),
+                amount=_get_num(values[7]),
+                currency=_get_str(values[2]),
+                exchange_rate=_get_num(values[8]),
+                amount_krw=_get_num(values[9]),
+                fee=_get_num(values[10]),
+                tax=_get_num(values[11]),
+                profit=_get_num(values[12]),
+                profit_krw=_get_num(values[13]),
+                profit_rate=_get_num(values[14]) * 100,
+                account=sheet_name,
+            )
+        else:
+            # 국내: A~I (9컬럼)
+            amount = _get_num(values[5])
+            profit = _get_num(values[7])
+            return Trade(
+                date=date_val,
+                trade_type=_get_str(values[1]),
+                stock_name=_get_str(values[2]),
+                stock_code="",
+                quantity=_get_num(values[3]),
+                price=_get_num(values[4]),
+                amount=amount,
+                currency="KRW",
+                exchange_rate=1.0,
+                amount_krw=amount,
+                fee=_get_num(values[6]),
+                tax=0.0,
+                profit=profit,
+                profit_krw=profit,
+                profit_rate=_get_num(values[8]) * 100,
+                account=sheet_name,
+            )
+    except (IndexError, KeyError, TypeError) as e:
+        logger.warning(f"행 변환 실패 ({sheet_name}, date={date_val}): {e}")
+        return None

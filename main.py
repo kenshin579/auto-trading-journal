@@ -159,46 +159,42 @@ class StockDataProcessor:
 
         async with self.client:
             try:
-                # 1. CSV 파일 스캔
+                # 1. CSV 파일 스캔 및 시트 삽입
                 csv_files = self.scan_csv_files()
-                if not csv_files:
-                    logger.warning("처리할 CSV 파일이 없습니다")
-                    return
+                total_csv_trades = 0
 
-                # 2. 각 파일 처리
-                all_trades: List[Trade] = []
-                results: Dict[str, int] = defaultdict(int)
-
-                for i, (broker, account_type, file_path) in enumerate(csv_files, 1):
-                    sheet_name = f"{broker}_{account_type}"
-                    logger.info(
-                        f"[{i}/{len(csv_files)}] {file_path.name} 처리 중..."
-                    )
-                    try:
-                        trades = await self.process_file(broker, account_type, file_path)
-                        all_trades.extend(trades)
-                        results[sheet_name] += len(
-                            [t for t in trades if t.duplicate_key()]
-                        )
+                if csv_files:
+                    for i, (broker, account_type, file_path) in enumerate(csv_files, 1):
                         logger.info(
-                            f"[{i}/{len(csv_files)}] {file_path.name} 완료 ({len(trades)}건)"
+                            f"[{i}/{len(csv_files)}] {file_path.name} 처리 중..."
                         )
-                    except Exception as e:
-                        logger.error(
-                            f"[{i}/{len(csv_files)}] {file_path.name} 처리 실패: {e}"
-                        )
+                        try:
+                            trades = await self.process_file(broker, account_type, file_path)
+                            total_csv_trades += len(trades)
+                            logger.info(
+                                f"[{i}/{len(csv_files)}] {file_path.name} 완료 ({len(trades)}건)"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"[{i}/{len(csv_files)}] {file_path.name} 처리 실패: {e}"
+                            )
+                else:
+                    logger.info("처리할 CSV 파일이 없습니다")
 
-                # 3. 요약 시트 갱신
-                if all_trades and not self.dry_run:
-                    logger.info("=== 요약 시트 갱신 중 ===")
-                    await self.summary_generator.generate_all(all_trades)
-                elif self.dry_run and all_trades:
-                    logger.info(f"[DRY-RUN] 요약 시트 갱신 예정 (총 {len(all_trades)}건)")
+                # 2. 대시보드 갱신 (매매일지 시트에서 전체 데이터 읽기)
+                if not self.dry_run:
+                    logger.info("=== 대시보드 갱신 중 ===")
+                    all_trades_from_sheets = await self.sheet_writer.read_all_trades()
+                    if all_trades_from_sheets:
+                        await self.summary_generator.generate_all(all_trades_from_sheets)
+                    else:
+                        logger.warning("매매일지 시트에 데이터가 없어 대시보드를 갱신하지 않습니다")
+                elif self.dry_run:
+                    logger.info(f"[DRY-RUN] 대시보드 갱신 예정 (CSV {total_csv_trades}건 처리)")
 
-                # 4. 결과 출력
+                # 3. 결과 출력
                 logger.info("=== 전체 처리 결과 ===")
-                total = len(all_trades)
-                logger.info(f"총 {total}건 처리 완료")
+                logger.info(f"CSV {total_csv_trades}건 처리 완료")
 
             finally:
                 logger.info("스크립트 실행 완료")
