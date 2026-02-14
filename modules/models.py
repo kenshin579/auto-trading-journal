@@ -53,6 +53,12 @@ class Trade:
             return self.to_foreign_row()
         return self.to_domestic_row()
 
+    @staticmethod
+    def _num_str(v: float) -> str:
+        """숫자를 시트 표현과 일치하는 문자열로 변환 (정수면 소수점 제거)"""
+        return str(int(v)) if v == int(v) else str(v)
+
     def duplicate_key(self) -> tuple:
-        """중복 체크 키"""
-        return (self.date, self.trade_type, self.stock_name, self.quantity, self.price)
+        """중복 체크 키 (시트에서 읽은 값과 비교 가능하도록 문자열 통일)"""
+        return (self.date, self.trade_type, self.stock_name,
+                self._num_str(self.quantity), self._num_str(self.price))
