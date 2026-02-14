@@ -88,6 +88,20 @@ class TestMiraeDomesticParser:
         row = trades[0].to_domestic_row()
         assert len(row) == 9
 
+    def test_profit_rate_as_decimal(self, parser, sample_file):
+        """수익률이 퍼센트 소수로 변환되는지 테스트 (14.68 → 0.1468)"""
+        if not sample_file.exists():
+            pytest.skip("샘플 파일 없음")
+        trades = parser.parse(sample_file, "미래에셋증권_국내계좌")
+        sell_with_profit = [t for t in trades if t.profit_rate != 0]
+        if not sell_with_profit:
+            pytest.skip("수익률 데이터 없음")
+        t = sell_with_profit[0]
+        row = t.to_domestic_row()
+        # row[-1]은 수익률 (퍼센트 소수)
+        assert abs(row[-1]) < 10  # 소수값이므로 10 미만이어야 함
+        assert abs(row[-1] - t.profit_rate / 100) < 1e-10
+
 
 class TestMiraeForeignParser:
     """미래에셋증권 해외계좌 파서 테스트"""
@@ -147,6 +161,19 @@ class TestMiraeForeignParser:
         trades = parser.parse(sample_file, "미래에셋증권_해외계좌")
         row = trades[0].to_foreign_row()
         assert len(row) == 15
+
+    def test_profit_rate_as_decimal(self, parser, sample_file):
+        """해외 수익률이 퍼센트 소수로 변환되는지 테스트"""
+        if not sample_file.exists():
+            pytest.skip("샘플 파일 없음")
+        trades = parser.parse(sample_file, "미래에셋증권_해외계좌")
+        sell_with_profit = [t for t in trades if t.profit_rate != 0]
+        if not sell_with_profit:
+            pytest.skip("수익률 데이터 없음")
+        t = sell_with_profit[0]
+        row = t.to_foreign_row()
+        assert abs(row[-1]) < 10
+        assert abs(row[-1] - t.profit_rate / 100) < 1e-10
 
 
 class TestHankookDomesticParser:

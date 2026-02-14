@@ -31,20 +31,26 @@ class Trade:
         return "해외" in self.account
 
     def to_domestic_row(self) -> list:
-        """국내계좌 시트 행 변환 (9컬럼)"""
+        """국내계좌 시트 행 변환 (9컬럼)
+        수익률은 퍼센트 소수로 변환 (14.68 → 0.1468)
+        """
         return [
             self.date, self.trade_type, self.stock_name,
             self.quantity, self.price, self.amount,
-            self.fee, self.profit, self.profit_rate,
+            self.fee, self.profit,
+            self.profit_rate / 100 if self.profit_rate else 0,
         ]
 
     def to_foreign_row(self) -> list:
-        """해외계좌 시트 행 변환 (15컬럼)"""
+        """해외계좌 시트 행 변환 (15컬럼)
+        수익률은 퍼센트 소수로 변환 (14.68 → 0.1468)
+        """
         return [
             self.date, self.trade_type, self.currency, self.stock_code,
             self.stock_name, self.quantity, self.price, self.amount,
             self.exchange_rate, self.amount_krw,
-            self.fee, self.tax, self.profit, self.profit_krw, self.profit_rate,
+            self.fee, self.tax, self.profit, self.profit_krw,
+            self.profit_rate / 100 if self.profit_rate else 0,
         ]
 
     def to_sheet_row(self) -> list:

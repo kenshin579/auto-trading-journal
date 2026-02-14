@@ -18,16 +18,17 @@ logger = logging.getLogger(__name__)
 
 class GoogleSheetsClient:
     """Google Sheets API v4 클라이언트"""
-    
+
     def __init__(self, spreadsheet_id: str, service_account_path: Optional[str] = None):
         """Google Sheets 클라이언트 초기화
-        
+
         Args:
             spreadsheet_id: Google 스프레드시트 ID
             service_account_path: 서비스 계정 키 파일 경로
         """
         self.spreadsheet_id = spreadsheet_id
-        
+        self._sheet_id_cache: Dict[str, int] = {}
+
         # 서비스 계정 경로 설정 (환경변수 우선)
         if service_account_path:
             self.service_account_path = service_account_path
@@ -35,7 +36,7 @@ class GoogleSheetsClient:
             self.service_account_path = os.getenv('SERVICE_ACCOUNT_PATH')
             if not self.service_account_path:
                 raise ValueError("환경변수 SERVICE_ACCOUNT_PATH가 설정되지 않았습니다")
-        
+
         self.service = None
         self._connect()
     
@@ -65,6 +66,20 @@ class GoogleSheetsClient:
         # Google Sheets API는 별도의 연결 종료가 필요 없음
         pass
     
+    async def _get_sheet_id(self, sheet_name: str) -> Optional[int]:
+        """시트 이름으로 sheetId를 반환 (캐시)"""
+        if sheet_name not in self._sheet_id_cache:
+            metadata = await self.get_spreadsheet_metadata()
+            for sheet in metadata.get('sheets', []):
+                title = sheet['properties']['title']
+                sid = sheet['properties']['sheetId']
+                self._sheet_id_cache[title] = sid
+        return self._sheet_id_cache.get(sheet_name)
+
+    def invalidate_sheet_id_cache(self):
+        """시트 ID 캐시 초기화 (시트 생성/삭제 후 호출)"""
+        self._sheet_id_cache.clear()
+
     async def list_sheets(self) -> List[str]:
         """스프레드시트의 모든 시트 목록을 반환"""
         try:
@@ -99,20 +114,44 @@ class GoogleSheetsClient:
             logger.error(f"스프레드시트 메타데이터 조회 실패: {e}")
             return {}
     
-    async def get_sheet_data(self, sheet_name: str, range_str: Optional[str] = None) -> Dict[str, Any]:
-        """시트의 데이터를 가져옵니다"""
+    async def get_raw_grid_data(self, sheet_name: str, range_str: str) -> Dict[str, Any]:
+        """spreadsheets.get()으로 effectiveValue + formattedValue를 함께 조회.
+
+        날짜(시리얼 넘버)와 숫자(원본 정밀도)를 동시에 올바르게 읽을 때 사용.
+        """
+        try:
+            range_name = f"{sheet_name}!{range_str}"
+            result = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id,
+                ranges=[range_name],
+                fields='sheets.data.rowData.values(effectiveValue,formattedValue)'
+            ).execute()
+            return result
+        except HttpError as e:
+            logger.error(f"시트 GridData 조회 실패: {e}")
+            return {}
+
+    async def get_sheet_data(self, sheet_name: str, range_str: Optional[str] = None,
+                            value_render_option: str = 'FORMATTED_VALUE') -> Dict[str, Any]:
+        """시트의 데이터를 가져옵니다
+
+        Args:
+            sheet_name: 시트 이름
+            range_str: 범위 (예: "A2:O10000")
+            value_render_option: 값 렌더링 옵션 (FORMATTED_VALUE 또는 UNFORMATTED_VALUE)
+        """
         try:
             # 범위 설정
             if range_str:
                 range_name = f"{sheet_name}!{range_str}"
             else:
                 range_name = sheet_name
-            
+
             # 데이터 가져오기
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name,
-                valueRenderOption='FORMATTED_VALUE'
+                valueRenderOption=value_render_option
             ).execute()
             
             # GridData 형식으로 변환 (기존 코드와의 호환성을 위해)
@@ -204,25 +243,15 @@ class GoogleSheetsClient:
             logger.error(f"배치 업데이트 실패: {e}")
             return False
     
-    def apply_color_to_range(self, sheet_name: str, start_row: int, end_row: int, 
-                           start_col: int, end_col: int, color: Dict[str, float]) -> bool:
+    async def apply_color_to_range(self, sheet_name: str, start_row: int, end_row: int,
+                                  start_col: int, end_col: int, color: Dict[str, float]) -> bool:
         """특정 범위에 색상을 적용합니다"""
         try:
-            # 시트 ID 가져오기
-            spreadsheet = self.service.spreadsheets().get(
-                spreadsheetId=self.spreadsheet_id
-            ).execute()
-            
-            sheet_id = None
-            for sheet in spreadsheet.get('sheets', []):
-                if sheet['properties']['title'] == sheet_name:
-                    sheet_id = sheet['properties']['sheetId']
-                    break
-            
+            sheet_id = await self._get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
-            
+
             # 색상 적용 요청
             requests = [{
                 'repeatCell': {
@@ -256,36 +285,22 @@ class GoogleSheetsClient:
             logger.error(f"색상 적용 실패: {e}")
             return False
     
-    def apply_number_format(self, sheet_name: str, start_row: int, end_row: int,
-                            columns: List[int], format_pattern: str) -> bool:
+    async def apply_number_format(self, sheet_name: str, start_row: int, end_row: int,
+                                  columns: List[int], format_pattern: str) -> bool:
         """특정 범위에 숫자 포맷을 적용합니다
 
         Args:
             sheet_name: 시트 이름
-            start_row: 시작 행
-            end_row: 종료 행
+            start_row: 시작 행 (1-based)
+            end_row: 종료 행 (1-based, inclusive)
             columns: 포맷 적용할 열 번호 리스트 (1-based)
             format_pattern: 포맷 패턴
-                - "#,##0" : 천 단위 구분
-                - "#,##0.00" : 소수점 2자리
-                - "[$₩-412]#,##0" : 원화
-                - "[$$-409]#,##0.00" : 달러
 
         Returns:
             성공 여부
         """
         try:
-            # 시트 ID 가져오기
-            spreadsheet = self.service.spreadsheets().get(
-                spreadsheetId=self.spreadsheet_id
-            ).execute()
-
-            sheet_id = None
-            for sheet in spreadsheet.get('sheets', []):
-                if sheet['properties']['title'] == sheet_name:
-                    sheet_id = sheet['properties']['sheetId']
-                    break
-
+            sheet_id = await self._get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -328,39 +343,25 @@ class GoogleSheetsClient:
             logger.error(f"숫자 포맷 적용 실패: {e}")
             return False
 
-    def batch_apply_colors(self, sheet_name: str, color_ranges: List[Dict[str, Any]]) -> bool:
+    async def batch_apply_colors(self, sheet_name: str, color_ranges: List[Dict[str, Any]]) -> bool:
         """여러 범위에 한 번에 색상을 적용합니다
-        
+
         Args:
             sheet_name: 시트 이름
             color_ranges: 색상 적용 정보 리스트
-                [{
-                    'start_row': int,
-                    'end_row': int,
-                    'start_col': int,
-                    'end_col': int,
-                    'color': Dict[str, float]
-                }, ...]
-        
+                [{'start_row': int, 'end_row': int,
+                  'start_col': int, 'end_col': int,
+                  'color': Dict[str, float]}, ...]
+
         Returns:
             성공 여부
         """
         try:
-            # 시트 ID 가져오기
-            spreadsheet = self.service.spreadsheets().get(
-                spreadsheetId=self.spreadsheet_id
-            ).execute()
-            
-            sheet_id = None
-            for sheet in spreadsheet.get('sheets', []):
-                if sheet['properties']['title'] == sheet_name:
-                    sheet_id = sheet['properties']['sheetId']
-                    break
-            
+            sheet_id = await self._get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
-            
+
             # 모든 색상 적용 요청을 한 번에 준비
             requests = []
             for color_range in color_ranges:
@@ -417,6 +418,7 @@ class GoogleSheetsClient:
                 body=body
             ).execute()
             logger.info(f"시트 '{title}' 생성 완료")
+            self.invalidate_sheet_id_cache()
             return True
         except HttpError as e:
             logger.error(f"시트 '{title}' 생성 실패: {e}")
@@ -442,4 +444,149 @@ class GoogleSheetsClient:
             return True
         except HttpError as e:
             logger.error(f"시트 '{sheet_name}' 데이터 삭제 실패: {e}")
+            return False
+
+    async def freeze_rows(self, sheet_name: str, row_count: int = 1) -> bool:
+        """시트의 상단 N행을 고정
+
+        Args:
+            sheet_name: 시트 이름
+            row_count: 고정할 행 수 (기본: 1)
+        """
+        try:
+            sheet_id = await self._get_sheet_id(sheet_name)
+            if sheet_id is None:
+                logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+
+            requests = [{
+                'updateSheetProperties': {
+                    'properties': {
+                        'sheetId': sheet_id,
+                        'gridProperties': {
+                            'frozenRowCount': row_count
+                        }
+                    },
+                    'fields': 'gridProperties.frozenRowCount'
+                }
+            }]
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"시트 '{sheet_name}' 행 고정 완료 ({row_count}행)")
+            return True
+
+        except HttpError as e:
+            logger.error(f"행 고정 실패 ({sheet_name}): {e}")
+            return False
+
+    async def set_auto_filter(self, sheet_name: str, start_row: int,
+                              start_col: int, end_col: int) -> bool:
+        """시트에 자동 필터를 설정 (기존 필터 제거 후 재설정)
+
+        Args:
+            sheet_name: 시트 이름
+            start_row: 필터 시작 행 (1-based)
+            start_col: 시작 열 (1-based)
+            end_col: 종료 열 (1-based, inclusive)
+        """
+        try:
+            sheet_id = await self._get_sheet_id(sheet_name)
+            if sheet_id is None:
+                logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+
+            # 기존 필터 제거 시도 후 새 필터 설정
+            try:
+                self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={'requests': [{'clearBasicFilter': {'sheetId': sheet_id}}]}
+                ).execute()
+            except HttpError:
+                pass  # 기존 필터가 없으면 무시
+
+            requests = [{
+                'setBasicFilter': {
+                    'filter': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': start_row - 1,
+                            'startColumnIndex': start_col - 1,
+                            'endColumnIndex': end_col
+                        }
+                    }
+                }
+            }]
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"시트 '{sheet_name}' 자동 필터 설정 완료")
+            return True
+
+        except HttpError as e:
+            logger.error(f"자동 필터 설정 실패 ({sheet_name}): {e}")
+            return False
+
+    async def apply_number_format_to_columns(
+        self, sheet_name: str,
+        column_formats: List[Dict[str, Any]],
+        start_row: int, end_row: int
+    ) -> bool:
+        """여러 컬럼에 각각 다른 숫자 포맷을 한 번에 적용
+
+        Args:
+            sheet_name: 시트 이름
+            column_formats: 포맷 정보 리스트
+                [{'col': int (1-based), 'pattern': str, 'type': str (optional)}, ...]
+            start_row: 시작 행 (1-based)
+            end_row: 종료 행 (1-based, inclusive)
+        """
+        try:
+            sheet_id = await self._get_sheet_id(sheet_name)
+            if sheet_id is None:
+                logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+
+            requests = []
+            for fmt in column_formats:
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': start_row - 1,
+                            'endRowIndex': end_row,
+                            'startColumnIndex': fmt['col'] - 1,
+                            'endColumnIndex': fmt['col']
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'numberFormat': {
+                                    'type': fmt.get('type', 'NUMBER'),
+                                    'pattern': fmt['pattern']
+                                }
+                            }
+                        },
+                        'fields': 'userEnteredFormat.numberFormat'
+                    }
+                })
+
+            if not requests:
+                return True
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"컬럼별 숫자 포맷 적용 완료: {sheet_name} ({len(column_formats)}개 컬럼)")
+            return True
+
+        except HttpError as e:
+            logger.error(f"컬럼별 숫자 포맷 적용 실패 ({sheet_name}): {e}")
             return False
