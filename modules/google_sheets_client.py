@@ -112,7 +112,7 @@ class GoogleSheetsClient:
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name,
-                valueRenderOption='UNFORMATTED_VALUE'
+                valueRenderOption='FORMATTED_VALUE'
             ).execute()
             
             # GridData 형식으로 변환 (기존 코드와의 호환성을 위해)
