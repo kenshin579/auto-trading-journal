@@ -21,18 +21,6 @@ FOREIGN_HEADERS = [
     "손익(외화)", "손익(원화)", "수익률(%)",
 ]
 
-# 8색 팔레트 (날짜별 색상 구분)
-COLOR_PALETTE = [
-    {"red": 1.0, "green": 0.9, "blue": 0.9},
-    {"red": 0.9, "green": 1.0, "blue": 0.9},
-    {"red": 0.9, "green": 0.9, "blue": 1.0},
-    {"red": 1.0, "green": 1.0, "blue": 0.9},
-    {"red": 1.0, "green": 0.9, "blue": 1.0},
-    {"red": 0.9, "green": 1.0, "blue": 1.0},
-    {"red": 0.95, "green": 0.95, "blue": 0.85},
-    {"red": 0.85, "green": 0.95, "blue": 0.95},
-]
-
 # 국내계좌 컬럼별 숫자 포맷 (1-based index)
 DOMESTIC_FORMATS = [
     {'col': 4, 'pattern': '#,##0'},              # D: 수량
@@ -95,6 +83,7 @@ class SheetWriter:
         sheets = await self._get_sheets()
         if sheet_name in sheets:
             await self.apply_sheet_formatting(sheet_name, is_foreign)
+            await self.client.clear_background_colors(sheet_name)
             return False
 
         headers = FOREIGN_HEADERS if is_foreign else DOMESTIC_HEADERS
@@ -252,12 +241,6 @@ class SheetWriter:
         # 숫자 포맷 적용
         await self._apply_number_formats(sheet_name, start_row, end_row, is_foreign, trades)
 
-        # 날짜별 색상 적용
-        color_ranges = self._build_date_color_ranges(trades, start_row, 1, num_cols)
-        if color_ranges:
-            await self.client.batch_apply_colors(sheet_name, color_ranges)
-            logger.info(f"날짜 색상 적용: {len(color_ranges)}개 범위")
-
         return len(trades)
 
     async def _apply_number_formats(self, sheet_name: str, start_row: int,
@@ -291,39 +274,6 @@ class SheetWriter:
                     sheet_name, formats, range_start, range_end
                 )
 
-    def _build_date_color_ranges(self, trades: List[Trade],
-                                 start_row: int, start_col: int,
-                                 end_col: int) -> List[Dict[str, Any]]:
-        """날짜별 색상 범위 생성"""
-        if not trades:
-            return []
-
-        date_groups: Dict[str, List[int]] = defaultdict(list)
-        for i, trade in enumerate(trades):
-            date_groups[trade.date].append(i)
-
-        color_ranges = []
-        for date_idx, (date, indices) in enumerate(date_groups.items()):
-            color = COLOR_PALETTE[date_idx % len(COLOR_PALETTE)]
-            indices.sort()
-
-            i = 0
-            while i < len(indices):
-                s = indices[i]
-                e = s
-                while i + 1 < len(indices) and indices[i + 1] == indices[i] + 1:
-                    i += 1
-                    e = indices[i]
-                color_ranges.append({
-                    "start_row": start_row + s,
-                    "end_row": start_row + e,
-                    "start_col": start_col,
-                    "end_col": end_col,
-                    "color": color,
-                })
-                i += 1
-
-        return color_ranges
 
 
 def _normalize_num(v) -> str:
