@@ -35,27 +35,35 @@ COLOR_PALETTE = [
 
 # 국내계좌 컬럼별 숫자 포맷 (1-based index)
 DOMESTIC_FORMATS = [
-    {'col': 4, 'pattern': '#,##0'},       # D: 수량
-    {'col': 5, 'pattern': '#,##0'},       # E: 단가
-    {'col': 6, 'pattern': '#,##0'},       # F: 금액
-    {'col': 7, 'pattern': '#,##0'},       # G: 수수료
-    {'col': 8, 'pattern': '#,##0'},       # H: 손익금액
+    {'col': 4, 'pattern': '#,##0'},              # D: 수량
+    {'col': 5, 'pattern': '₩#,##0'},             # E: 단가
+    {'col': 6, 'pattern': '₩#,##0'},             # F: 금액
+    {'col': 7, 'pattern': '₩#,##0'},             # G: 수수료
+    {'col': 8, 'pattern': '₩#,##0'},             # H: 손익금액
     {'col': 9, 'pattern': '0.00%', 'type': 'PERCENT'},  # I: 수익률
 ]
 
-# 해외계좌 컬럼별 숫자 포맷 (1-based index)
-FOREIGN_FORMATS = [
-    {'col': 6, 'pattern': '#,##0'},        # F: 수량
-    {'col': 7, 'pattern': '#,##0.00'},     # G: 단가
-    {'col': 8, 'pattern': '#,##0.00'},     # H: 금액(외화)
-    {'col': 9, 'pattern': '#,##0.00'},     # I: 환율
-    {'col': 10, 'pattern': '#,##0'},       # J: 금액(원화)
-    {'col': 11, 'pattern': '#,##0.00'},    # K: 수수료
-    {'col': 12, 'pattern': '#,##0.00'},    # L: 세금
-    {'col': 13, 'pattern': '#,##0.00'},    # M: 손익(외화)
-    {'col': 14, 'pattern': '#,##0'},       # N: 손익(원화)
+# 해외계좌 - 통화 무관 컬럼 포맷 (1-based index)
+FOREIGN_FORMATS_COMMON = [
+    {'col': 6, 'pattern': '#,##0'},              # F: 수량
+    {'col': 9, 'pattern': '#,##0.00'},           # I: 환율
+    {'col': 10, 'pattern': '₩#,##0'},            # J: 금액(원화)
+    {'col': 14, 'pattern': '₩#,##0'},            # N: 손익(원화)
     {'col': 15, 'pattern': '0.00%', 'type': 'PERCENT'},  # O: 수익률
 ]
+
+# 해외계좌 - 통화별 외화 컬럼 (1-based index)
+FOREIGN_CURRENCY_COLS = [7, 8, 11, 12, 13]  # G:단가, H:금액외화, K:수수료, L:세금, M:손익외화
+
+# 통화별 포맷 패턴
+CURRENCY_PATTERNS = {
+    'USD': '$#,##0.00',
+    'JPY': '¥#,##0',
+    'EUR': '€#,##0.00',
+    'GBP': '£#,##0.00',
+    'CNY': '¥#,##0.00',
+}
+CURRENCY_PATTERN_DEFAULT = '#,##0.00'
 
 
 class SheetWriter:
@@ -242,7 +250,7 @@ class SheetWriter:
         logger.info(f"시트 '{sheet_name}'에 {len(trades)}건 삽입 (행 {start_row}-{end_row})")
 
         # 숫자 포맷 적용
-        await self._apply_number_formats(sheet_name, start_row, end_row, is_foreign)
+        await self._apply_number_formats(sheet_name, start_row, end_row, is_foreign, trades)
 
         # 날짜별 색상 적용
         color_ranges = self._build_date_color_ranges(trades, start_row, 1, num_cols)
@@ -253,12 +261,35 @@ class SheetWriter:
         return len(trades)
 
     async def _apply_number_formats(self, sheet_name: str, start_row: int,
-                                    end_row: int, is_foreign: bool):
+                                    end_row: int, is_foreign: bool,
+                                    trades: Optional[List[Trade]] = None):
         """컬럼별 숫자 포맷 적용"""
-        formats = FOREIGN_FORMATS if is_foreign else DOMESTIC_FORMATS
+        if not is_foreign:
+            await self.client.apply_number_format_to_columns(
+                sheet_name, DOMESTIC_FORMATS, start_row, end_row
+            )
+            return
+
+        # 해외: 통화 무관 컬럼 일괄 적용
         await self.client.apply_number_format_to_columns(
-            sheet_name, formats, start_row, end_row
+            sheet_name, FOREIGN_FORMATS_COMMON, start_row, end_row
         )
+
+        # 해외: 통화별 외화 컬럼 행 단위 적용
+        if not trades:
+            return
+        currency_rows: Dict[str, List[int]] = defaultdict(list)
+        for i, trade in enumerate(trades):
+            currency_rows[trade.currency].append(start_row + i)
+
+        for currency, rows in currency_rows.items():
+            pattern = CURRENCY_PATTERNS.get(currency, CURRENCY_PATTERN_DEFAULT)
+            formats = [{'col': c, 'pattern': pattern} for c in FOREIGN_CURRENCY_COLS]
+            # 연속 행 구간을 묶어서 API 호출 최소화
+            for range_start, range_end in _group_consecutive_rows(rows):
+                await self.client.apply_number_format_to_columns(
+                    sheet_name, formats, range_start, range_end
+                )
 
     def _build_date_color_ranges(self, trades: List[Trade],
                                  start_row: int, start_col: int,
@@ -306,6 +337,23 @@ def _normalize_num(v) -> str:
     if isinstance(v, (int, float)):
         return str(int(v)) if v == int(v) else str(v)
     return str(v).replace(',', '')
+
+
+def _group_consecutive_rows(rows: List[int]) -> List[tuple]:
+    """행 번호 리스트를 연속 구간으로 묶기. [(start, end), ...]"""
+    if not rows:
+        return []
+    sorted_rows = sorted(rows)
+    ranges = []
+    start = end = sorted_rows[0]
+    for r in sorted_rows[1:]:
+        if r == end + 1:
+            end = r
+        else:
+            ranges.append((start, end))
+            start = end = r
+    ranges.append((start, end))
+    return ranges
 
 
 def _col_letter(col_num: int) -> str:
