@@ -46,3 +46,7 @@ token.dat
 .history
 reports
 logs
+
+# input CSV 파일
+input/
+.DS_Store
