@@ -25,6 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest>=7.4.3",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [build-system]
@@ -35,6 +36,7 @@ build-backend = "setuptools.build_meta"
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
+asyncio_mode = "auto"
 
 [tool.setuptools]
 packages = ["modules", "modules.parsers"]

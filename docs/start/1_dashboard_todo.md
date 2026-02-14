@@ -38,16 +38,16 @@
 
 ### tests/test_sheet_reader.py
 
-- [ ] `test_domestic_row_to_trade` - 국내 9컬럼 → Trade 16필드 매핑 검증
-- [ ] `test_foreign_row_to_trade` - 해외 15컬럼 → Trade 16필드 매핑 검증
-- [ ] `test_profit_rate_conversion` - 수익률 역변환 (0.1468 → 14.68)
-- [ ] `test_skip_empty_row` - 빈 행 스킵
-- [ ] `test_skip_incomplete_row` - 컬럼 부족 행 스킵
-- [ ] `test_header_validation_domestic` - DOMESTIC_HEADERS 일치 시 국내 인식
-- [ ] `test_header_validation_foreign` - FOREIGN_HEADERS 일치 시 해외 인식
-- [ ] `test_header_validation_skip` - 헤더 불일치 시 스킵
+- [x] `test_domestic_row_to_trade` - 국내 9컬럼 → Trade 16필드 매핑 검증
+- [x] `test_foreign_row_to_trade` - 해외 15컬럼 → Trade 16필드 매핑 검증
+- [x] `test_profit_rate_conversion` - 수익률 역변환 (0.1468 → 14.68)
+- [x] `test_skip_empty_row` - 빈 행 스킵
+- [x] `test_skip_incomplete_row` - 컬럼 부족 행 스킵
+- [x] `test_header_validation_domestic` - DOMESTIC_HEADERS 일치 시 국내 인식
+- [x] `test_header_validation_foreign` - FOREIGN_HEADERS 일치 시 해외 인식
+- [x] `test_header_validation_skip` - 헤더 불일치 시 스킵
 
 ### 검증
 
-- [ ] `pytest` 전체 테스트 통과 확인
+- [x] `pytest` 전체 테스트 통과 확인 (49/49)
 - [ ] dry-run 모드로 실행하여 정상 동작 확인
