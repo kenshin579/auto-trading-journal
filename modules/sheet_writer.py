@@ -1,6 +1,7 @@
 """Google Sheets 시트 쓰기/읽기 모듈"""
 
 import logging
+import unicodedata
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -281,11 +282,20 @@ class SheetWriter:
 
         헤더 행(1행)을 검증하여 매매일지 시트만 식별.
         DOMESTIC_HEADERS 일치 → 국내, FOREIGN_HEADERS 일치 → 해외.
+        NFD/NFC 유니코드 중복 시트는 하나만 읽음.
         """
         sheets = await self.client.list_sheets()
         all_trades: List[Trade] = []
+        seen_names: Set[str] = set()
 
         for sheet_name in sheets:
+            # NFD/NFC 유니코드 중복 시트 방지
+            normalized_name = unicodedata.normalize("NFC", sheet_name)
+            if normalized_name in seen_names:
+                logger.info(f"시트 '{sheet_name}' 스킵 (유니코드 중복: {normalized_name})")
+                continue
+            seen_names.add(normalized_name)
+
             header_data = await self.client.get_sheet_data(sheet_name, "A1:O1")
             header_row = _extract_header_row(header_data)
             if not header_row:
@@ -299,10 +309,12 @@ class SheetWriter:
                 logger.debug(f"시트 '{sheet_name}' 스킵 (매매일지 헤더 불일치)")
                 continue
 
-            trades = await self._read_trades_from_sheet(sheet_name, is_foreign)
+            trades = await self._read_trades_from_sheet(
+                sheet_name, is_foreign, account_name=normalized_name
+            )
             all_trades.extend(trades)
             logger.info(
-                f"시트 '{sheet_name}'에서 {len(trades)}건 읽음 "
+                f"시트 '{normalized_name}'에서 {len(trades)}건 읽음 "
                 f"({'해외' if is_foreign else '국내'})"
             )
 
@@ -310,9 +322,17 @@ class SheetWriter:
         return all_trades
 
     async def _read_trades_from_sheet(
-        self, sheet_name: str, is_foreign: bool
+        self, sheet_name: str, is_foreign: bool,
+        account_name: Optional[str] = None,
     ) -> List[Trade]:
-        """개별 매매일지 시트에서 Trade 리스트 반환."""
+        """개별 매매일지 시트에서 Trade 리스트 반환.
+
+        Args:
+            sheet_name: API 호출에 사용할 원본 시트 이름
+            is_foreign: 해외계좌 여부
+            account_name: Trade.account에 설정할 이름 (None이면 sheet_name 사용)
+        """
+        account = account_name or sheet_name
         try:
             data = await self.client.get_raw_grid_data(sheet_name, "A2:O10000")
             if not data or "sheets" not in data:
@@ -331,7 +351,7 @@ class SheetWriter:
                 if not date_val:
                     continue
 
-                trade = _row_to_trade(values, sheet_name, is_foreign, date_val)
+                trade = _row_to_trade(values, account, is_foreign, date_val)
                 if trade:
                     trades.append(trade)
 

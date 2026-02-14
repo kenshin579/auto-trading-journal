@@ -321,3 +321,18 @@ class TestReadAllTrades:
 
         trades = await writer.read_all_trades()
         assert len(trades) == 3  # 국내 2건 + 해외 1건
+
+    async def test_nfd_nfc_duplicate_skip(self, writer, mock_client):
+        """NFD/NFC 유니코드 중복 시트는 하나만 읽음."""
+        import unicodedata
+        nfc_name = unicodedata.normalize("NFC", "미래에셋증권_주식1")
+        nfd_name = unicodedata.normalize("NFD", "미래에셋증권_주식1")
+        assert nfc_name != nfd_name  # 실제로 다른 바이트열
+
+        mock_client.list_sheets.return_value = [nfc_name, nfd_name]
+        mock_client.get_sheet_data.return_value = _build_header_grid_data(DOMESTIC_HEADERS)
+        mock_client.get_raw_grid_data.return_value = _build_grid_data([DOMESTIC_ROW])
+
+        trades = await writer.read_all_trades()
+        assert len(trades) == 1  # NFC 1건만 읽고 NFD는 스킵
+        assert mock_client.get_raw_grid_data.call_count == 1
