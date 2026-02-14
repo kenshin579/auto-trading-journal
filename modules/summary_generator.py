@@ -198,6 +198,8 @@ class SummaryGenerator:
         total_buy = sum(t.amount_krw for t in buy_trades)
 
         rows = [["[투자 지표]", ""]]
+        pct_rows = []   # % 포맷 행 (0-based offset)
+        krw_rows = []   # 원화 포맷 행
 
         # 계좌별 투자비중
         rows.append(["계좌별 투자비중", ""])
@@ -205,6 +207,7 @@ class SummaryGenerator:
         for t in buy_trades:
             account_buy[t.account] += t.amount_krw
         for account, amount in sorted(account_buy.items()):
+            pct_rows.append(len(rows))
             rows.append([f"  {account}", amount / total_buy if total_buy else 0])
 
         # 통화별 투자비중
@@ -213,6 +216,7 @@ class SummaryGenerator:
         for t in buy_trades:
             currency_buy[t.currency] += t.amount_krw
         for currency, amount in sorted(currency_buy.items()):
+            pct_rows.append(len(rows))
             rows.append([f"  {currency}", amount / total_buy if total_buy else 0])
 
         # 섹터별 투자비중
@@ -226,6 +230,7 @@ class SummaryGenerator:
                     sector_buy[sector] += t.amount_krw
                 for sector, amount in sorted(sector_buy.items(),
                                              key=lambda x: x[1], reverse=True):
+                    pct_rows.append(len(rows))
                     rows.append([f"  {sector}", amount / total_buy if total_buy else 0])
 
         # 상위 5종목 집중도
@@ -234,6 +239,7 @@ class SummaryGenerator:
             stock_buy[t.stock_name] += t.amount_krw
         top5 = sorted(stock_buy.values(), reverse=True)[:5]
         top5_ratio = sum(top5) / total_buy if total_buy else 0
+        pct_rows.append(len(rows))
         rows.append(["상위 5종목 집중도", top5_ratio])
 
         # 평균 수익률 / 평균 손실률
@@ -241,25 +247,41 @@ class SummaryGenerator:
         loss_rates = [t.profit_rate for t in sell_trades if t.profit_rate < 0]
         avg_profit = (sum(profit_rates) / len(profit_rates) / 100) if profit_rates else 0
         avg_loss = (sum(loss_rates) / len(loss_rates) / 100) if loss_rates else 0
+        pct_rows.append(len(rows))
         rows.append(["평균 수익률", avg_profit])
+        pct_rows.append(len(rows))
         rows.append(["평균 손실률", avg_loss])
 
         # 손익비
         pl_ratio = abs(avg_profit / avg_loss) if avg_loss else 0
         rows.append(["손익비", round(pl_ratio, 2)])
 
-        # 최대 수익/손실 종목
+        # 수익 Top 5 / 손실 Top 5 (종목별 합산)
         if sell_trades:
-            best = max(sell_trades, key=lambda t: t.profit_krw)
-            worst = min(sell_trades, key=lambda t: t.profit_krw)
-            rows.append(["최대 수익 종목", f"{best.stock_name} (+{best.profit_krw:,.0f}원)"])
-            rows.append(["최대 손실 종목", f"{worst.stock_name} ({worst.profit_krw:,.0f}원)"])
+            stock_profit: Dict[str, float] = defaultdict(float)
+            for t in sell_trades:
+                stock_profit[t.stock_name] += t.profit_krw
+            sorted_stocks = sorted(stock_profit.items(), key=lambda x: x[1], reverse=True)
+
+            rows.append(["수익 Top 5", ""])
+            for name, profit in sorted_stocks[:5]:
+                krw_rows.append(len(rows))
+                rows.append([f"  {name}", profit])
+
+            rows.append(["손실 Top 5", ""])
+            for name, profit in sorted_stocks[-5:][::-1]:
+                if profit < 0:
+                    krw_rows.append(len(rows))
+                    rows.append([f"  {name}", profit])
 
         # 데이터 작성
         end_row = start_row + len(rows) - 1
         await self.client.batch_update_cells(
             DASHBOARD_SHEET, {f"A{start_row}:B{end_row}": rows}
         )
+
+        # 행별 포맷 적용
+        await self._apply_metrics_formats(start_row, pct_rows, krw_rows)
 
         logger.info(f"대시보드 투자 지표: {len(rows)}행 작성")
         return start_row + len(rows)
@@ -335,14 +357,39 @@ class SummaryGenerator:
                 DASHBOARD_SHEET, stock_formats, stock_start + 1, stock_data_end
             )
 
-        # 섹션 4: 투자 지표 - 비율 값에 퍼센트 포맷
-        if total_rows > metrics_start:
-            metrics_formats = [
-                {'col': 2, 'pattern': '0.00%', 'type': 'PERCENT'},
-            ]
-            await self.client.apply_number_format_to_columns(
-                DASHBOARD_SHEET, metrics_formats, metrics_start + 1, total_rows
-            )
+        # 섹션 4: 투자 지표 → _apply_metrics_formats()에서 행별 처리
+
+    async def _apply_metrics_formats(self, start_row: int,
+                                     pct_offsets: List[int],
+                                     krw_offsets: List[int]):
+        """투자 지표 섹션 행별 포맷 적용 (연속 행 그룹핑)"""
+        pct_fmt = [{'col': 2, 'pattern': '0.00%', 'type': 'PERCENT'}]
+        krw_fmt = [{'col': 2, 'pattern': '₩#,##0'}]
+
+        for offsets, fmt in [(pct_offsets, pct_fmt), (krw_offsets, krw_fmt)]:
+            if not offsets:
+                continue
+            abs_rows = sorted(start_row + o for o in offsets)
+            for r_start, r_end in self._group_consecutive_rows(abs_rows):
+                await self.client.apply_number_format_to_columns(
+                    DASHBOARD_SHEET, fmt, r_start, r_end
+                )
+
+    @staticmethod
+    def _group_consecutive_rows(rows: List[int]) -> List[Tuple[int, int]]:
+        """연속된 행 번호를 (start, end) 그룹으로 묶기"""
+        if not rows:
+            return []
+        groups = []
+        start = end = rows[0]
+        for r in rows[1:]:
+            if r == end + 1:
+                end = r
+            else:
+                groups.append((start, end))
+                start = end = r
+        groups.append((start, end))
+        return groups
 
     async def _get_sector_map(self, buy_trades: List[Trade]) -> Dict[str, str]:
         """매수 종목 리스트에서 섹터 매핑 조회"""
