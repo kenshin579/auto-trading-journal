@@ -28,7 +28,7 @@
 
 ### main.py
 
-- [ ] `run()` 메서드의 요약 시트 갱신 부분 변경
+- [x] `run()` 메서드의 요약 시트 갱신 부분 변경
   - 기존: `summary_generator.generate_all(all_trades)` (CSV 파싱 결과)
   - 변경: `sheet_writer.read_all_trades()` → `generate_all()`에 전달
   - CSV 파일 유무와 관계없이 시트 데이터가 있으면 대시보드 갱신
