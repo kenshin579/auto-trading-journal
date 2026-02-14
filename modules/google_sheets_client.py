@@ -424,6 +424,33 @@ class GoogleSheetsClient:
             logger.error(f"시트 '{title}' 생성 실패: {e}")
             return False
 
+    async def delete_sheet(self, sheet_name: str) -> bool:
+        """시트(탭)를 삭제합니다
+
+        Args:
+            sheet_name: 삭제할 시트 이름
+
+        Returns:
+            성공 여부
+        """
+        try:
+            sheet_id = await self._get_sheet_id(sheet_name)
+            if sheet_id is None:
+                logger.warning(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+            requests = [{"deleteSheet": {"sheetId": sheet_id}}]
+            body = {"requests": requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            logger.info(f"시트 '{sheet_name}' 삭제 완료")
+            self.invalidate_sheet_id_cache()
+            return True
+        except HttpError as e:
+            logger.error(f"시트 '{sheet_name}' 삭제 실패: {e}")
+            return False
+
     async def clear_sheet(self, sheet_name: str, start_row: int = 2) -> bool:
         """시트 데이터를 삭제합니다 (헤더 유지)
 

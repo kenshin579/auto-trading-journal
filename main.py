@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import logging
 import os
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -94,8 +95,10 @@ class StockDataProcessor:
             if not broker_dir.is_dir():
                 continue
             for csv_file in sorted(broker_dir.glob("*.csv")):
-                account_type = csv_file.stem  # "국내계좌" or "해외계좌"
-                results.append((broker_dir.name, account_type, csv_file))
+                # macOS NFD 정규화 대응: 파일명을 NFC로 통일
+                broker_name = unicodedata.normalize("NFC", broker_dir.name)
+                account_type = unicodedata.normalize("NFC", csv_file.stem)
+                results.append((broker_name, account_type, csv_file))
 
         logger.info(f"CSV 파일 {len(results)}개 발견")
         return results
