@@ -446,6 +446,48 @@ class GoogleSheetsClient:
             logger.error(f"시트 '{sheet_name}' 데이터 삭제 실패: {e}")
             return False
 
+    async def clear_background_colors(self, sheet_name: str, end_row: int = 1000, end_col: int = 26) -> bool:
+        """시트 전체 배경색을 제거합니다
+
+        Args:
+            sheet_name: 시트 이름
+            end_row: 초기화할 마지막 행 (기본: 1000)
+            end_col: 초기화할 마지막 열 (기본: 26, Z열)
+        """
+        try:
+            sheet_id = await self._get_sheet_id(sheet_name)
+            if sheet_id is None:
+                logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+
+            requests = [{
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 0,
+                        'endRowIndex': end_row,
+                        'startColumnIndex': 0,
+                        'endColumnIndex': end_col,
+                    },
+                    'cell': {
+                        'userEnteredFormat': {}
+                    },
+                    'fields': 'userEnteredFormat.backgroundColor'
+                }
+            }]
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"시트 '{sheet_name}' 배경색 초기화 완료")
+            return True
+
+        except HttpError as e:
+            logger.error(f"시트 '{sheet_name}' 배경색 초기화 실패: {e}")
+            return False
+
     async def freeze_rows(self, sheet_name: str, row_count: int = 1) -> bool:
         """시트의 상단 N행을 고정
 

@@ -47,6 +47,7 @@ class SummaryGenerator:
         current_row = await self._write_investment_metrics(all_trades, current_row)
 
         # 포맷 적용
+        await self._apply_header_colors(monthly_start, stock_start, metrics_start)
         await self._apply_dashboard_formats(monthly_start, stock_start, metrics_start, current_row)
 
         logger.info("대시보드 시트 갱신 완료")
@@ -58,6 +59,7 @@ class SummaryGenerator:
             await self.client.create_sheet(DASHBOARD_SHEET)
         else:
             await self.client.clear_sheet(DASHBOARD_SHEET, start_row=1)
+            await self.client.clear_background_colors(DASHBOARD_SHEET)
 
     async def _write_portfolio_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 1: 포트폴리오 요약 (2행)"""
@@ -261,6 +263,29 @@ class SummaryGenerator:
 
         logger.info(f"대시보드 투자 지표: {len(rows)}행 작성")
         return start_row + len(rows)
+
+    async def _apply_header_colors(self, monthly_start: int,
+                                     stock_start: int, metrics_start: int):
+        """대시보드 헤더 행에 배경색 적용"""
+        header_color = {'red': 0.24, 'green': 0.52, 'blue': 0.78}  # 파란색
+        header_rows = [
+            {'row': 1, 'end_col': 7},             # 포트폴리오 요약 (A~G)
+            {'row': monthly_start, 'end_col': 8},  # 월별 성과 (A~H)
+            {'row': stock_start, 'end_col': 11},   # 종목별 현황 (A~K)
+        ]
+
+        color_ranges = []
+        for h in header_rows:
+            color_ranges.append({
+                'start_row': h['row'],
+                'end_row': h['row'],
+                'start_col': 1,
+                'end_col': h['end_col'],
+                'color': header_color,
+            })
+
+        await self.client.batch_apply_colors(DASHBOARD_SHEET, color_ranges)
+        logger.info("대시보드 헤더 배경색 적용 완료")
 
     async def _apply_dashboard_formats(self, monthly_start: int,
                                        stock_start: int, metrics_start: int,
