@@ -256,20 +256,20 @@ class SummaryGenerator:
         pl_ratio = abs(avg_profit / avg_loss) if avg_loss else 0
         rows.append(["손익비", round(pl_ratio, 2)])
 
-        # 수익 Top 5 / 손실 Top 5 (종목별 합산)
+        # 수익 Top 10 / 손실 Top 10 (종목별 합산)
         if sell_trades:
             stock_profit: Dict[str, float] = defaultdict(float)
             for t in sell_trades:
                 stock_profit[t.stock_name] += t.profit_krw
             sorted_stocks = sorted(stock_profit.items(), key=lambda x: x[1], reverse=True)
 
-            rows.append(["수익 Top 5", ""])
-            for name, profit in sorted_stocks[:5]:
+            rows.append(["수익 Top 10", ""])
+            for name, profit in sorted_stocks[:10]:
                 krw_rows.append(len(rows))
                 rows.append([f"  {name}", profit])
 
-            rows.append(["손실 Top 5", ""])
-            for name, profit in sorted_stocks[-5:][::-1]:
+            rows.append(["손실 Top 10", ""])
+            for name, profit in sorted_stocks[-10:][::-1]:
                 if profit < 0:
                     krw_rows.append(len(rows))
                     rows.append([f"  {name}", profit])
