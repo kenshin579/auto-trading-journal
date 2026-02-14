@@ -6,12 +6,15 @@
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from .google_sheets_client import GoogleSheetsClient
 from .sheet_writer import SheetWriter
 
 from .models import Trade
+
+if TYPE_CHECKING:
+    from .sector_classifier import SectorClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +24,11 @@ DASHBOARD_SHEET = "대시보드"
 class SummaryGenerator:
     """대시보드 시트 생성기"""
 
-    def __init__(self, client: GoogleSheetsClient, sheet_writer: SheetWriter):
+    def __init__(self, client: GoogleSheetsClient, sheet_writer: SheetWriter,
+                 sector_classifier: Optional["SectorClassifier"] = None):
         self.client = client
         self.sheet_writer = sheet_writer
+        self.sector_classifier = sector_classifier
 
     async def generate_all(self, all_trades: List[Trade]):
         """대시보드 시트 생성 (초기화 후 재작성)"""
@@ -208,6 +213,19 @@ class SummaryGenerator:
         for currency, amount in sorted(currency_buy.items()):
             rows.append([f"  {currency}", amount / total_buy if total_buy else 0])
 
+        # 섹터별 투자비중
+        if self.sector_classifier:
+            sector_map = await self._get_sector_map(buy_trades)
+            if sector_map:
+                rows.append(["섹터별 투자비중", ""])
+                sector_buy: Dict[str, float] = defaultdict(float)
+                for t in buy_trades:
+                    sector = sector_map.get(t.stock_name, "기타")
+                    sector_buy[sector] += t.amount_krw
+                for sector, amount in sorted(sector_buy.items(),
+                                             key=lambda x: x[1], reverse=True):
+                    rows.append([f"  {sector}", amount / total_buy if total_buy else 0])
+
         # 상위 5종목 집중도
         stock_buy: Dict[str, float] = defaultdict(float)
         for t in buy_trades:
@@ -300,3 +318,15 @@ class SummaryGenerator:
             await self.client.apply_number_format_to_columns(
                 DASHBOARD_SHEET, metrics_formats, metrics_start + 1, total_rows
             )
+
+    async def _get_sector_map(self, buy_trades: List[Trade]) -> Dict[str, str]:
+        """매수 종목 리스트에서 섹터 매핑 조회"""
+        stocks = list({
+            (t.stock_name, t.stock_code, t.currency)
+            for t in buy_trades
+        })
+        try:
+            return await self.sector_classifier.classify(stocks)
+        except Exception as e:
+            logger.error(f"섹터 분류 실패, 건너뜀: {e}")
+            return {}
