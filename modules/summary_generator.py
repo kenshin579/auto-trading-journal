@@ -54,8 +54,6 @@ class SummaryGenerator:
         else:
             await self.client.clear_sheet(DASHBOARD_SHEET, start_row=1)
 
-        await self.client.freeze_rows(DASHBOARD_SHEET, 1)
-
     async def _write_portfolio_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 1: 포트폴리오 요약 (2행)"""
         buy_trades = [t for t in trades if t.trade_type == '매수']
