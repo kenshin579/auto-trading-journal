@@ -74,7 +74,7 @@
 
 ## Phase 4: 정리
 
-- [ ] 기존 불필요 모듈 삭제
+- [x] 기존 불필요 모듈 삭제
   - `modules/stock_classifier.py`
   - `modules/report_generator.py`
   - `modules/data_validator.py`
@@ -82,6 +82,8 @@
   - `modules/trade_models.py`
   - `modules/test_foreign.py`
   - `modules/test_sheet_manager.py`
+  - `modules/sheet_manager.py`
   - `stock_type_cache.json`
+  - `test_main.py`
 
-- [ ] CLAUDE.md 업데이트 (v2 구조 반영)
+- [x] CLAUDE.md 업데이트 (v2 구조 반영)
