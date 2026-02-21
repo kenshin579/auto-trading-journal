@@ -102,6 +102,18 @@ class TestMiraeDomesticParser:
         assert abs(row[-1]) < 10  # 소수값이므로 10 미만이어야 함
         assert abs(row[-1] - t.profit_rate / 100) < 1e-10
 
+    def test_parse_raises_on_empty_date(self, parser, tmp_path):
+        """날짜가 빈 행이 있으면 ValueError 발생"""
+        csv_file = tmp_path / "empty_date.csv"
+        csv_file.write_text(
+            "일자,종목명,기간 중 매수,,,기간 중 매도,,,매매비용,손익금액,수익률\n"
+            ",,,,,,,,,,,\n"
+            ",삼성전자,10,50000,500000,0,0,0,0,0,0\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="날짜가 비어있습니다"):
+            parser.parse(csv_file, "테스트")
+
 
 class TestMiraeForeignParser:
     """미래에셋증권 해외계좌 파서 테스트"""
@@ -175,6 +187,21 @@ class TestMiraeForeignParser:
         assert abs(row[-1]) < 10
         assert abs(row[-1] - t.profit_rate / 100) < 1e-10
 
+    def test_parse_raises_on_empty_date(self, parser, tmp_path):
+        """날짜가 빈 행이 있으면 ValueError 발생"""
+        csv_file = tmp_path / "empty_date.csv"
+        csv_file.write_text(
+            "매매일,통화,종목번호,종목명,잔고 수량,매입평균환율,매매일환율,"
+            "매수 수량,매수단가,매수금액,원화매수금액,"
+            "매도 수량,매도단가,매도금액,원화매도금액,"
+            "수수료,세금,원화총비용,원매수평균가,"
+            "매매손익,원화매매손익,환차손익,총평가손익,손익률,환산손익률\n"
+            ",USD,AAPL,Apple Inc,0,1300,1300,10,150,1500,1950000,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="날짜가 비어있습니다"):
+            parser.parse(csv_file, "테스트")
+
 
 class TestHankookDomesticParser:
     """한국투자증권 국내계좌 파서 테스트"""
@@ -230,6 +257,20 @@ class TestHankookDomesticParser:
         trades = parser.parse(sample_file, "한국투자증권_국내계좌")
         sell_trades = [t for t in trades if t.trade_type == "매도"]
         assert len(sell_trades) > 0
+
+    def test_parse_raises_on_empty_date(self, parser, tmp_path):
+        """날짜가 빈 행이 있으면 ValueError 발생"""
+        csv_file = tmp_path / "empty_date.csv"
+        csv_file.write_text(
+            '"매매일자","종목명","종목코드","구분","대출일자",'
+            '"보유수량","매입단가","매수수량","매도단가","매도수량",'
+            '"매수금액","매도금액","실현손익","손익률","수수료","이자","제세금"\n'
+            '"","삼성전자","005930","보통","","100","50000","10","0","0",'
+            '"500000","0","0","0","0","0","0"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="날짜가 비어있습니다"):
+            parser.parse(csv_file, "테스트")
 
 
 class TestParserRegistry:

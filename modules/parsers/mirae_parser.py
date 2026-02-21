@@ -59,7 +59,9 @@ class MiraeDomesticParser(BaseParser):
                     continue
                 date_raw = row[0].strip()
                 stock_name = row[1].strip()
-                if not date_raw or not stock_name:
+                if not date_raw:
+                    raise ValueError(f"날짜가 비어있습니다: {file_path.name}, {line_num}행")
+                if not stock_name:
                     continue
 
                 date = _convert_date(date_raw)
@@ -168,7 +170,9 @@ class MiraeForeignParser(BaseParser):
                 currency = row[1].strip()
                 stock_code = row[2].strip()
                 stock_name = row[3].strip()
-                if not date_raw or not stock_name:
+                if not date_raw:
+                    raise ValueError(f"날짜가 비어있습니다: {file_path.name}, {line_num}행")
+                if not stock_name:
                     continue
 
                 date = _convert_date(date_raw)
