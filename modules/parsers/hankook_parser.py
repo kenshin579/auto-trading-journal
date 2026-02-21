@@ -70,7 +70,7 @@ class HankookDomesticParser(BaseParser):
 
                 date_raw = row[0].strip().strip('"')
                 if not date_raw:
-                    continue
+                    raise ValueError(f"날짜가 비어있습니다: {file_path.name}, {line_num}행")
 
                 date = _convert_date(date_raw)
                 stock_code = row[2].strip().strip('"')
