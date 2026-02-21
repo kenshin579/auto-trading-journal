@@ -41,6 +41,23 @@ echo -e "${BLUE}로그 레벨: DEBUG${NC}"
 echo -e "${BLUE}로그 파일: $LOG_FILE${NC}"
 echo ""
 
+# CSV 인코딩 변환 (CP949 → UTF-8)
+echo -e "${BLUE}=== CSV 인코딩 확인 및 변환 ===${NC}"
+CONVERTED=0
+SKIPPED=0
+while IFS= read -r -d '' csv_file; do
+    encoding=$(file -I "$csv_file" | grep -o 'charset=.*' | cut -d= -f2)
+    if [[ "$encoding" == "utf-8" ]]; then
+        SKIPPED=$((SKIPPED + 1))
+    else
+        iconv -f CP949 -t UTF-8 "$csv_file" > "$csv_file.tmp" && mv "$csv_file.tmp" "$csv_file"
+        echo -e "${GREEN}  변환 완료: $(basename "$csv_file")${NC}"
+        CONVERTED=$((CONVERTED + 1))
+    fi
+done < <(find input -name "*.csv" -print0 2>/dev/null)
+echo -e "${BLUE}인코딩 변환: ${CONVERTED}개 변환, ${SKIPPED}개 스킵 (이미 UTF-8)${NC}"
+echo ""
+
 # Python 스크립트 실행 (DEBUG 레벨로 설정하고 로그 파일에 저장)
 # tee를 사용하여 터미널과 파일 모두에 출력
 python main.py --log-level DEBUG 2>&1 | tee "$LOG_FILE"
