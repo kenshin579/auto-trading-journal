@@ -5,6 +5,7 @@ MCP 대신 Google Sheets API를 직접 사용합니다.
 """
 
 import logging
+import unicodedata
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 import os
@@ -71,7 +72,7 @@ class GoogleSheetsClient:
         if sheet_name not in self._sheet_id_cache:
             metadata = await self.get_spreadsheet_metadata()
             for sheet in metadata.get('sheets', []):
-                title = sheet['properties']['title']
+                title = unicodedata.normalize("NFC", sheet['properties']['title'])
                 sid = sheet['properties']['sheetId']
                 self._sheet_id_cache[title] = sid
         return self._sheet_id_cache.get(sheet_name)
@@ -90,7 +91,7 @@ class GoogleSheetsClient:
             
             # 시트 이름 추출
             sheets = spreadsheet.get('sheets', [])
-            sheet_names = [sheet['properties']['title'] for sheet in sheets]
+            sheet_names = [unicodedata.normalize("NFC", sheet['properties']['title']) for sheet in sheets]
             
             logger.info(f"{len(sheet_names)}개의 시트를 찾음")
             return sheet_names
