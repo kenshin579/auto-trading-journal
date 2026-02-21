@@ -5,6 +5,7 @@ MCP 대신 Google Sheets API를 직접 사용합니다.
 """
 
 import logging
+import unicodedata
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 import os
@@ -28,6 +29,7 @@ class GoogleSheetsClient:
         """
         self.spreadsheet_id = spreadsheet_id
         self._sheet_id_cache: Dict[str, int] = {}
+        self._nfc_to_api_name: Dict[str, str] = {}  # NFC name → original API name
 
         # 서비스 계정 경로 설정 (환경변수 우선)
         if service_account_path:
@@ -71,14 +73,21 @@ class GoogleSheetsClient:
         if sheet_name not in self._sheet_id_cache:
             metadata = await self.get_spreadsheet_metadata()
             for sheet in metadata.get('sheets', []):
-                title = sheet['properties']['title']
+                raw_title = sheet['properties']['title']
+                title = unicodedata.normalize("NFC", raw_title)
                 sid = sheet['properties']['sheetId']
                 self._sheet_id_cache[title] = sid
+                self._nfc_to_api_name[title] = raw_title
         return self._sheet_id_cache.get(sheet_name)
+
+    def _resolve_api_name(self, sheet_name: str) -> str:
+        """NFC 시트 이름을 Google Sheets API용 원본 이름으로 변환"""
+        return self._nfc_to_api_name.get(sheet_name, sheet_name)
 
     def invalidate_sheet_id_cache(self):
         """시트 ID 캐시 초기화 (시트 생성/삭제 후 호출)"""
         self._sheet_id_cache.clear()
+        self._nfc_to_api_name.clear()
 
     async def list_sheets(self) -> List[str]:
         """스프레드시트의 모든 시트 목록을 반환"""
@@ -88,9 +97,14 @@ class GoogleSheetsClient:
                 spreadsheetId=self.spreadsheet_id
             ).execute()
             
-            # 시트 이름 추출
+            # 시트 이름 추출 (NFC 정규화 + 원본 이름 매핑 저장)
             sheets = spreadsheet.get('sheets', [])
-            sheet_names = [sheet['properties']['title'] for sheet in sheets]
+            sheet_names = []
+            for sheet in sheets:
+                raw_title = sheet['properties']['title']
+                nfc_title = unicodedata.normalize("NFC", raw_title)
+                self._nfc_to_api_name[nfc_title] = raw_title
+                sheet_names.append(nfc_title)
             
             logger.info(f"{len(sheet_names)}개의 시트를 찾음")
             return sheet_names
@@ -120,7 +134,8 @@ class GoogleSheetsClient:
         날짜(시리얼 넘버)와 숫자(원본 정밀도)를 동시에 올바르게 읽을 때 사용.
         """
         try:
-            range_name = f"{sheet_name}!{range_str}"
+            api_name = self._resolve_api_name(sheet_name)
+            range_name = f"{api_name}!{range_str}"
             result = self.service.spreadsheets().get(
                 spreadsheetId=self.spreadsheet_id,
                 ranges=[range_name],
@@ -142,10 +157,11 @@ class GoogleSheetsClient:
         """
         try:
             # 범위 설정
+            api_name = self._resolve_api_name(sheet_name)
             if range_str:
-                range_name = f"{sheet_name}!{range_str}"
+                range_name = f"{api_name}!{range_str}"
             else:
-                range_name = sheet_name
+                range_name = api_name
 
             # 데이터 가져오기
             result = self.service.spreadsheets().values().get(
@@ -193,7 +209,8 @@ class GoogleSheetsClient:
     async def update_cells(self, sheet_name: str, range_str: str, data: List[List[Any]]) -> bool:
         """셀 데이터를 업데이트합니다"""
         try:
-            range_name = f"{sheet_name}!{range_str}"
+            api_name = self._resolve_api_name(sheet_name)
+            range_name = f"{api_name}!{range_str}"
             
             body = {
                 'values': data
@@ -218,10 +235,11 @@ class GoogleSheetsClient:
         """여러 범위의 셀을 한 번에 업데이트"""
         try:
             # 배치 업데이트 데이터 준비
+            api_name = self._resolve_api_name(sheet_name)
             data = []
             for range_str, values in ranges.items():
                 data.append({
-                    'range': f"{sheet_name}!{range_str}",
+                    'range': f"{api_name}!{range_str}",
                     'values': values
                 })
             
@@ -462,9 +480,10 @@ class GoogleSheetsClient:
             성공 여부
         """
         try:
+            api_name = self._resolve_api_name(sheet_name)
             self.service.spreadsheets().values().clear(
                 spreadsheetId=self.spreadsheet_id,
-                range=f"{sheet_name}!A{start_row}:Z",
+                range=f"{api_name}!A{start_row}:Z",
                 body={}
             ).execute()
             logger.info(f"시트 '{sheet_name}' 데이터 삭제 완료 (행 {start_row}부터)")
