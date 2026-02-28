@@ -1,11 +1,12 @@
 """대시보드 시트 생성 모듈
 
 기존 요약_월별 + 요약_종목별 → 대시보드 단일 시트로 통합.
-4개 섹션: 포트폴리오 요약, 월별 성과, 종목별 현황, 투자 지표.
+5개 섹션: 포트폴리오 요약, 월별 성과, 종목별 현황, 투자 지표, 매매 인사이트.
 """
 
 import logging
 from collections import defaultdict
+from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from .google_sheets_client import GoogleSheetsClient
@@ -45,10 +46,14 @@ class SummaryGenerator:
         current_row += 1  # 빈 행
         metrics_start = current_row
         current_row = await self._write_investment_metrics(all_trades, current_row)
+        current_row += 1  # 빈 행
+        insights_start = current_row
+        current_row = await self._write_trading_insights(all_trades, current_row)
 
         # 포맷 적용
         await self._apply_header_colors(monthly_start, stock_start, metrics_start)
-        await self._apply_dashboard_formats(monthly_start, stock_start, metrics_start, current_row)
+        await self._apply_dashboard_formats(monthly_start, stock_start, metrics_start,
+                                            insights_start, current_row)
 
         logger.info("대시보드 시트 갱신 완료")
 
@@ -286,6 +291,204 @@ class SummaryGenerator:
         logger.info(f"대시보드 투자 지표: {len(rows)}행 작성")
         return start_row + len(rows)
 
+    async def _write_trading_insights(self, trades: List[Trade], start_row: int) -> int:
+        """섹션 5: 매매 인사이트"""
+        sell_trades = [t for t in trades if t.trade_type == '매도']
+
+        rows = [["[매매 인사이트]", ""]]
+        pct_rows = []   # % 포맷 행 (0-based offset)
+        krw_rows = []   # 원화 포맷 행
+
+        if not sell_trades:
+            rows.append(["매도 거래 없음", ""])
+            end_row = start_row + len(rows) - 1
+            await self.client.batch_update_cells(
+                DASHBOARD_SHEET, {f"A{start_row}:B{end_row}": rows}
+            )
+            return start_row + len(rows)
+
+        # --- 공통 계산 ---
+        profitable = [t for t in sell_trades if t.profit_krw > 0]
+        losing = [t for t in sell_trades if t.profit_krw <= 0]
+        win_rate = len(profitable) / len(sell_trades) if sell_trades else 0
+        loss_rate = 1 - win_rate
+
+        avg_profit_amount = (sum(t.profit_krw for t in profitable) / len(profitable)
+                             if profitable else 0)
+        avg_loss_amount = (sum(t.profit_krw for t in losing) / len(losing)
+                           if losing else 0)
+
+        # --- 5-1. 매매 기대값 (Expectancy) ---
+        rows.append(["매매 기대값 (Expectancy)", ""])
+        expectancy = (avg_profit_amount * win_rate) - (abs(avg_loss_amount) * loss_rate)
+        krw_rows.append(len(rows))
+        rows.append(["  1건당 기대 수익", expectancy])
+
+        # --- 5-2. Profit Factor ---
+        total_gross_profit = sum(t.profit_krw for t in profitable)
+        total_gross_loss = abs(sum(t.profit_krw for t in losing))
+        profit_factor = (total_gross_profit / total_gross_loss
+                         if total_gross_loss else 0)
+        rows.append(["Profit Factor", round(profit_factor, 2)])
+
+        # --- 5-3. 연속 승/패 기록 ---
+        rows.append(["연속 승/패 기록", ""])
+        sorted_sells = sorted(sell_trades, key=lambda t: t.date)
+        max_wins, max_losses, cur_wins, cur_losses = self._calc_streaks(sorted_sells)
+        rows.append(["  최대 연승", max_wins])
+        rows.append(["  최대 연패", max_losses])
+        if cur_wins > 0:
+            rows.append(["  현재 연승", cur_wins])
+        else:
+            rows.append(["  현재 연패", cur_losses])
+
+        # --- 5-4. 요일별 성과 ---
+        rows.append(["요일별 성과", ""])
+        day_names = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+        day_stats = self._calc_day_of_week_stats(sorted_sells)
+        for weekday_idx in range(7):
+            stats = day_stats.get(weekday_idx)
+            if stats:
+                count, profit_sum, day_win_rate = stats
+                rows.append([
+                    f"  {day_names[weekday_idx]}",
+                    f"{count}건 / ₩{profit_sum:,.0f} / 승률 {day_win_rate:.1f}%",
+                ])
+
+        # --- 5-5. 월별 수익 추세 (MoM 변화) ---
+        rows.append(["월별 수익 추세", ""])
+        monthly_profits = self._calc_monthly_profits(sorted_sells)
+        prev_profit = None
+        for month, profit_sum in monthly_profits:
+            if prev_profit is not None and prev_profit != 0:
+                change = profit_sum - prev_profit
+                change_pct = change / abs(prev_profit) * 100
+                label = f"  {month} (전월대비 {change_pct:+.1f}%)"
+            else:
+                label = f"  {month}"
+            krw_rows.append(len(rows))
+            rows.append([label, profit_sum])
+            prev_profit = profit_sum
+
+        # --- 5-6. 손절/익절 규율 분석 ---
+        rows.append(["손절/익절 규율", ""])
+        krw_rows.append(len(rows))
+        rows.append(["  평균 수익 금액", avg_profit_amount])
+        krw_rows.append(len(rows))
+        rows.append(["  평균 손실 금액", avg_loss_amount])
+        profit_multiple = (avg_profit_amount / abs(avg_loss_amount)
+                           if avg_loss_amount else 0)
+        rows.append(["  평균 수익 배수", round(profit_multiple, 2)])
+
+        # --- 5-7. 거래 빈도 분석 ---
+        rows.append(["거래 빈도 분석", ""])
+        freq_stats = self._calc_trade_frequency(sorted_sells)
+        rows.append(["  월 평균 거래건수", round(freq_stats["avg_monthly"], 1)])
+        rows.append([f"  거래 가장 많은 달 ({freq_stats['max_month']})",
+                     freq_stats["max_count"]])
+        rows.append([f"  거래 가장 적은 달 ({freq_stats['min_month']})",
+                     freq_stats["min_count"]])
+
+        # --- 5-8. 수익 집중도 분석 ---
+        rows.append(["수익 집중도", ""])
+        stock_profit: Dict[str, float] = defaultdict(float)
+        for t in sell_trades:
+            stock_profit[t.stock_name] += t.profit_krw
+        positive_stocks = {k: v for k, v in stock_profit.items() if v > 0}
+        total_positive = sum(positive_stocks.values())
+        sorted_positive = sorted(positive_stocks.values(), reverse=True)
+        top3_ratio = sum(sorted_positive[:3]) / total_positive if total_positive else 0
+        top5_ratio = sum(sorted_positive[:5]) / total_positive if total_positive else 0
+        pct_rows.append(len(rows))
+        rows.append(["  상위 3종목 수익 비중", top3_ratio])
+        pct_rows.append(len(rows))
+        rows.append(["  상위 5종목 수익 비중", top5_ratio])
+
+        # 데이터 작성
+        end_row = start_row + len(rows) - 1
+        await self.client.batch_update_cells(
+            DASHBOARD_SHEET, {f"A{start_row}:B{end_row}": rows}
+        )
+
+        # 행별 포맷 적용
+        await self._apply_metrics_formats(start_row, pct_rows, krw_rows)
+
+        logger.info(f"대시보드 매매 인사이트: {len(rows)}행 작성")
+        return start_row + len(rows)
+
+    @staticmethod
+    def _calc_streaks(sorted_sells: List[Trade]) -> Tuple[int, int, int, int]:
+        """매도 거래의 연속 승/패 기록 계산
+
+        Returns:
+            (max_wins, max_losses, current_wins, current_losses)
+        """
+        max_wins = max_losses = 0
+        cur_wins = cur_losses = 0
+
+        for t in sorted_sells:
+            if t.profit_krw > 0:
+                cur_wins += 1
+                cur_losses = 0
+                max_wins = max(max_wins, cur_wins)
+            else:
+                cur_losses += 1
+                cur_wins = 0
+                max_losses = max(max_losses, cur_losses)
+
+        return max_wins, max_losses, cur_wins, cur_losses
+
+    @staticmethod
+    def _calc_day_of_week_stats(
+        sorted_sells: List[Trade],
+    ) -> Dict[int, Tuple[int, float, float]]:
+        """요일별 (거래건수, 실현손익합, 승률%) 계산"""
+        day_groups: Dict[int, List[Trade]] = defaultdict(list)
+        for t in sorted_sells:
+            weekday = datetime.strptime(t.date, "%Y-%m-%d").weekday()
+            day_groups[weekday].append(t)
+
+        result = {}
+        for weekday, group in sorted(day_groups.items()):
+            count = len(group)
+            profit_sum = sum(t.profit_krw for t in group)
+            wins = len([t for t in group if t.profit_krw > 0])
+            win_rate = wins / count * 100 if count else 0
+            result[weekday] = (count, profit_sum, win_rate)
+        return result
+
+    @staticmethod
+    def _calc_monthly_profits(sorted_sells: List[Trade]) -> List[Tuple[str, float]]:
+        """월별 실현손익 집계 (정렬된 순서)"""
+        monthly: Dict[str, float] = defaultdict(float)
+        for t in sorted_sells:
+            month = t.date[:7]
+            monthly[month] += t.profit_krw
+        return sorted(monthly.items())
+
+    @staticmethod
+    def _calc_trade_frequency(sorted_sells: List[Trade]) -> Dict:
+        """월별 거래빈도 통계"""
+        monthly_counts: Dict[str, int] = defaultdict(int)
+        for t in sorted_sells:
+            month = t.date[:7]
+            monthly_counts[month] += 1
+
+        if not monthly_counts:
+            return {"avg_monthly": 0, "max_month": "-", "max_count": 0,
+                    "min_month": "-", "min_count": 0}
+
+        avg = sum(monthly_counts.values()) / len(monthly_counts)
+        max_month = max(monthly_counts, key=monthly_counts.get)
+        min_month = min(monthly_counts, key=monthly_counts.get)
+        return {
+            "avg_monthly": avg,
+            "max_month": max_month,
+            "max_count": monthly_counts[max_month],
+            "min_month": min_month,
+            "min_count": monthly_counts[min_month],
+        }
+
     async def _apply_header_colors(self, monthly_start: int,
                                      stock_start: int, metrics_start: int):
         """대시보드 헤더 행에 배경색 적용"""
@@ -311,7 +514,7 @@ class SummaryGenerator:
 
     async def _apply_dashboard_formats(self, monthly_start: int,
                                        stock_start: int, metrics_start: int,
-                                       total_rows: int):
+                                       insights_start: int, total_rows: int):
         """대시보드 시트에 숫자 포맷 적용"""
         # 섹션 1: 포트폴리오 요약 (행 2)
         portfolio_formats = [
