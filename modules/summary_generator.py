@@ -65,6 +65,7 @@ class SummaryGenerator:
         else:
             await self.client.clear_sheet(DASHBOARD_SHEET, start_row=1)
             await self.client.clear_background_colors(DASHBOARD_SHEET)
+            await self.client.clear_number_formats(DASHBOARD_SHEET)
 
     async def _write_portfolio_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 1: 포트폴리오 요약 (2행)"""
@@ -286,7 +287,7 @@ class SummaryGenerator:
         )
 
         # 행별 포맷 적용
-        await self._apply_metrics_formats(start_row, pct_rows, krw_rows)
+        await self._apply_metrics_formats(start_row, pct_rows, krw_rows, len(rows))
 
         logger.info(f"대시보드 투자 지표: {len(rows)}행 작성")
         return start_row + len(rows)
@@ -411,7 +412,7 @@ class SummaryGenerator:
         )
 
         # 행별 포맷 적용
-        await self._apply_metrics_formats(start_row, pct_rows, krw_rows)
+        await self._apply_metrics_formats(start_row, pct_rows, krw_rows, len(rows))
 
         logger.info(f"대시보드 매매 인사이트: {len(rows)}행 작성")
         return start_row + len(rows)
@@ -564,8 +565,16 @@ class SummaryGenerator:
 
     async def _apply_metrics_formats(self, start_row: int,
                                      pct_offsets: List[int],
-                                     krw_offsets: List[int]):
+                                     krw_offsets: List[int],
+                                     total_rows: int):
         """투자 지표 섹션 행별 포맷 적용 (연속 행 그룹핑)"""
+        # 1단계: 섹션 전체 B열을 기본 NUMBER 포맷으로 초기화
+        default_fmt = [{'col': 2, 'pattern': '#,##0.##'}]
+        await self.client.apply_number_format_to_columns(
+            DASHBOARD_SHEET, default_fmt, start_row, start_row + total_rows - 1
+        )
+
+        # 2단계: pct/krw 개별 포맷 적용
         pct_fmt = [{'col': 2, 'pattern': '0.00%', 'type': 'PERCENT'}]
         krw_fmt = [{'col': 2, 'pattern': '₩#,##0'}]
 
