@@ -418,6 +418,75 @@ class SummaryGenerator:
         return start_row + len(rows)
 
     @staticmethod
+    def _calc_monthly_trend(sorted_sells: List[Trade]) -> List[Dict]:
+        """월별 성과 추이 계산
+
+        Returns:
+            List of dicts, 각 dict는 한 달의 지표:
+            month, sell_count, profit_krw, return_rate, win_rate,
+            avg_profit_rate, avg_loss_rate, pl_ratio, profit_factor,
+            expectancy, mom_change
+        """
+        month_groups: Dict[str, List[Trade]] = defaultdict(list)
+        for t in sorted_sells:
+            month_groups[t.date[:7]].append(t)
+
+        results = []
+        prev_profit = None
+
+        for month in sorted(month_groups.keys()):
+            sells = month_groups[month]
+            profitable = [t for t in sells if t.profit_krw > 0]
+            losing = [t for t in sells if t.profit_krw <= 0]
+
+            sell_count = len(sells)
+            total_sell_amount = sum(t.amount_krw for t in sells)
+            profit_krw = sum(t.profit_krw for t in sells)
+
+            return_rate = profit_krw / total_sell_amount if total_sell_amount else 0
+            win_rate = len(profitable) / sell_count
+
+            avg_profit_rate = (
+                sum(t.profit_rate for t in profitable) / len(profitable) / 100
+                if profitable else 0
+            )
+            avg_loss_rate = (
+                sum(t.profit_rate for t in losing) / len(losing) / 100
+                if losing else 0
+            )
+
+            pl_ratio = abs(avg_profit_rate / avg_loss_rate) if avg_loss_rate else 0
+
+            gross_profit = sum(t.profit_krw for t in profitable)
+            gross_loss = abs(sum(t.profit_krw for t in losing))
+            profit_factor = gross_profit / gross_loss if gross_loss else 0
+
+            avg_profit_amount = gross_profit / len(profitable) if profitable else 0
+            avg_loss_amount = gross_loss / len(losing) if losing else 0
+            expectancy = (avg_profit_amount * win_rate) - (avg_loss_amount * (1 - win_rate))
+
+            mom_change = None
+            if prev_profit is not None and prev_profit != 0:
+                mom_change = (profit_krw - prev_profit) / abs(prev_profit)
+            prev_profit = profit_krw
+
+            results.append({
+                "month": month,
+                "sell_count": sell_count,
+                "profit_krw": profit_krw,
+                "return_rate": return_rate,
+                "win_rate": win_rate,
+                "avg_profit_rate": avg_profit_rate,
+                "avg_loss_rate": avg_loss_rate,
+                "pl_ratio": round(pl_ratio, 2),
+                "profit_factor": round(profit_factor, 2),
+                "expectancy": expectancy,
+                "mom_change": mom_change,
+            })
+
+        return results
+
+    @staticmethod
     def _calc_streaks(sorted_sells: List[Trade]) -> Tuple[int, int, int, int]:
         """매도 거래의 연속 승/패 기록 계산
 
