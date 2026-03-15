@@ -1,7 +1,7 @@
 """대시보드 시트 생성 모듈
 
 기존 요약_월별 + 요약_종목별 → 대시보드 단일 시트로 통합.
-5개 섹션: 포트폴리오 요약, 월별 성과, 종목별 현황, 투자 지표, 매매 인사이트.
+6개 섹션: 포트폴리오 요약, 월별 성과, 투자 지표, 매매 인사이트, 월별 성과 추이, 종목별 현황.
 """
 
 import logging
@@ -41,19 +41,23 @@ class SummaryGenerator:
         monthly_start = current_row
         current_row = await self._write_monthly_summary(all_trades, current_row)
         current_row += 1  # 빈 행
-        stock_start = current_row
-        current_row = await self._write_stock_summary(all_trades, current_row)
-        current_row += 1  # 빈 행
         metrics_start = current_row
         current_row = await self._write_investment_metrics(all_trades, current_row)
         current_row += 1  # 빈 행
         insights_start = current_row
         current_row = await self._write_trading_insights(all_trades, current_row)
+        current_row += 1  # 빈 행
+        trend_start = current_row
+        current_row = await self._write_monthly_trend(all_trades, current_row)
+        current_row += 1  # 빈 행
+        stock_start = current_row
+        current_row = await self._write_stock_summary(all_trades, current_row)
 
         # 포맷 적용
-        await self._apply_header_colors(monthly_start, stock_start, metrics_start)
-        await self._apply_dashboard_formats(monthly_start, stock_start, metrics_start,
-                                            insights_start, current_row)
+        await self._apply_header_colors(monthly_start, trend_start, stock_start)
+        await self._apply_dashboard_formats(monthly_start, metrics_start,
+                                            insights_start, trend_start,
+                                            stock_start, current_row)
 
         logger.info("대시보드 시트 갱신 완료")
 
@@ -417,6 +421,114 @@ class SummaryGenerator:
         logger.info(f"대시보드 매매 인사이트: {len(rows)}행 작성")
         return start_row + len(rows)
 
+    async def _write_monthly_trend(self, trades: List[Trade], start_row: int) -> int:
+        """섹션 6: 월별 성과 추이"""
+        headers = [
+            "연월", "매도건수", "실현손익(원)", "수익률(%)",
+            "승률(%)", "평균수익률(%)", "평균손실률(%)",
+            "손익비", "Profit Factor", "기대값(원)", "전월대비(%)",
+        ]
+
+        sell_trades = [t for t in trades if t.trade_type == '매도']
+        sorted_sells = sorted(sell_trades, key=lambda t: t.date)
+        trend_data = self._calc_monthly_trend(sorted_sells)
+
+        rows = []
+        for d in trend_data:
+            rows.append([
+                d["month"],
+                d["sell_count"],
+                d["profit_krw"],
+                d["return_rate"],
+                d["win_rate"],
+                d["avg_profit_rate"],
+                d["avg_loss_rate"],
+                d["pl_ratio"],
+                d["profit_factor"],
+                d["expectancy"],
+                d["mom_change"] if d["mom_change"] is not None else "",
+            ])
+
+        await self.client.update_cells(DASHBOARD_SHEET, f"A{start_row}", [headers])
+        if rows:
+            end_row = start_row + len(rows)
+            await self.client.batch_update_cells(
+                DASHBOARD_SHEET, {f"A{start_row + 1}:K{end_row}": rows}
+            )
+            logger.info(f"대시보드 월별 성과 추이: {len(rows)}행 작성")
+            return end_row + 1
+
+        return start_row + 1
+
+    @staticmethod
+    def _calc_monthly_trend(sorted_sells: List[Trade]) -> List[Dict]:
+        """월별 성과 추이 계산
+
+        Returns:
+            List of dicts, 각 dict는 한 달의 지표:
+            month, sell_count, profit_krw, return_rate, win_rate,
+            avg_profit_rate, avg_loss_rate, pl_ratio, profit_factor,
+            expectancy, mom_change
+        """
+        month_groups: Dict[str, List[Trade]] = defaultdict(list)
+        for t in sorted_sells:
+            month_groups[t.date[:7]].append(t)
+
+        results = []
+        prev_profit = None
+
+        for month in sorted(month_groups.keys()):
+            sells = month_groups[month]
+            profitable = [t for t in sells if t.profit_krw > 0]
+            losing = [t for t in sells if t.profit_krw <= 0]
+
+            sell_count = len(sells)
+            total_sell_amount = sum(t.amount_krw for t in sells)
+            profit_krw = sum(t.profit_krw for t in sells)
+
+            return_rate = profit_krw / total_sell_amount if total_sell_amount else 0
+            win_rate = len(profitable) / sell_count
+
+            avg_profit_rate = (
+                sum(t.profit_rate for t in profitable) / len(profitable) / 100
+                if profitable else 0
+            )
+            avg_loss_rate = (
+                sum(t.profit_rate for t in losing) / len(losing) / 100
+                if losing else 0
+            )
+
+            pl_ratio = abs(avg_profit_rate / avg_loss_rate) if avg_loss_rate else 0
+
+            gross_profit = sum(t.profit_krw for t in profitable)
+            gross_loss = abs(sum(t.profit_krw for t in losing))
+            profit_factor = gross_profit / gross_loss if gross_loss else 0
+
+            avg_profit_amount = gross_profit / len(profitable) if profitable else 0
+            avg_loss_amount = gross_loss / len(losing) if losing else 0
+            expectancy = (avg_profit_amount * win_rate) - (avg_loss_amount * (1 - win_rate))
+
+            mom_change = None
+            if prev_profit is not None and prev_profit != 0:
+                mom_change = (profit_krw - prev_profit) / abs(prev_profit)
+            prev_profit = profit_krw
+
+            results.append({
+                "month": month,
+                "sell_count": sell_count,
+                "profit_krw": profit_krw,
+                "return_rate": return_rate,
+                "win_rate": win_rate,
+                "avg_profit_rate": avg_profit_rate,
+                "avg_loss_rate": avg_loss_rate,
+                "pl_ratio": round(pl_ratio, 2),
+                "profit_factor": round(profit_factor, 2),
+                "expectancy": expectancy,
+                "mom_change": mom_change,
+            })
+
+        return results
+
     @staticmethod
     def _calc_streaks(sorted_sells: List[Trade]) -> Tuple[int, int, int, int]:
         """매도 거래의 연속 승/패 기록 계산
@@ -491,13 +603,14 @@ class SummaryGenerator:
         }
 
     async def _apply_header_colors(self, monthly_start: int,
-                                     stock_start: int, metrics_start: int):
+                                     trend_start: int, stock_start: int):
         """대시보드 헤더 행에 배경색 적용"""
         header_color = {'red': 0.24, 'green': 0.52, 'blue': 0.78}  # 파란색
         header_rows = [
-            {'row': 1, 'end_col': 7},             # 포트폴리오 요약 (A~G)
-            {'row': monthly_start, 'end_col': 8},  # 월별 성과 (A~H)
-            {'row': stock_start, 'end_col': 11},   # 종목별 현황 (A~K)
+            {'row': 1, 'end_col': 7},              # 포트폴리오 요약 (A~G)
+            {'row': monthly_start, 'end_col': 8},   # 월별 성과 (A~H)
+            {'row': trend_start, 'end_col': 11},    # 월별 성과 추이 (A~K)
+            {'row': stock_start, 'end_col': 11},    # 종목별 현황 (A~K)
         ]
 
         color_ranges = []
@@ -514,8 +627,9 @@ class SummaryGenerator:
         logger.info("대시보드 헤더 배경색 적용 완료")
 
     async def _apply_dashboard_formats(self, monthly_start: int,
-                                       stock_start: int, metrics_start: int,
-                                       insights_start: int, total_rows: int):
+                                       metrics_start: int, insights_start: int,
+                                       trend_start: int, stock_start: int,
+                                       total_rows: int):
         """대시보드 시트에 숫자 포맷 적용"""
         # 섹션 1: 포트폴리오 요약 (행 2)
         portfolio_formats = [
@@ -530,8 +644,8 @@ class SummaryGenerator:
             DASHBOARD_SHEET, portfolio_formats, 2, 2
         )
 
-        # 섹션 2: 월별 성과 (monthly_start+1 ~ stock_start-2)
-        monthly_data_end = stock_start - 2
+        # 섹션 2: 월별 성과 (monthly_start+1 ~ metrics_start-2)
+        monthly_data_end = metrics_start - 2
         if monthly_data_end > monthly_start:
             monthly_formats = [
                 {'col': 3, 'pattern': '#,##0'},       # C: 매수건수
@@ -545,8 +659,27 @@ class SummaryGenerator:
                 DASHBOARD_SHEET, monthly_formats, monthly_start + 1, monthly_data_end
             )
 
-        # 섹션 3: 종목별 현황 (stock_start+1 ~ metrics_start-2)
-        stock_data_end = metrics_start - 2
+        # 섹션 6: 월별 성과 추이 (trend_start+1 ~ stock_start-2)
+        trend_data_end = stock_start - 2
+        if trend_data_end > trend_start:
+            trend_formats = [
+                {'col': 2, 'pattern': '#,##0'},                           # B: 매도건수
+                {'col': 3, 'pattern': '₩#,##0'},                         # C: 실현손익
+                {'col': 4, 'pattern': '0.00%', 'type': 'PERCENT'},       # D: 수익률
+                {'col': 5, 'pattern': '0.00%', 'type': 'PERCENT'},       # E: 승률
+                {'col': 6, 'pattern': '0.00%', 'type': 'PERCENT'},       # F: 평균수익률
+                {'col': 7, 'pattern': '0.00%', 'type': 'PERCENT'},       # G: 평균손실률
+                {'col': 8, 'pattern': '0.00'},                            # H: 손익비
+                {'col': 9, 'pattern': '0.00'},                            # I: Profit Factor
+                {'col': 10, 'pattern': '₩#,##0'},                        # J: 기대값
+                {'col': 11, 'pattern': '0.0%', 'type': 'PERCENT'},       # K: 전월대비
+            ]
+            await self.client.apply_number_format_to_columns(
+                DASHBOARD_SHEET, trend_formats, trend_start + 1, trend_data_end
+            )
+
+        # 섹션 3: 종목별 현황 (stock_start+1 ~ total_rows)
+        stock_data_end = total_rows
         if stock_data_end > stock_start:
             stock_formats = [
                 {'col': 5, 'pattern': '#,##0'},       # E: 총매수수량
@@ -561,7 +694,7 @@ class SummaryGenerator:
                 DASHBOARD_SHEET, stock_formats, stock_start + 1, stock_data_end
             )
 
-        # 섹션 4: 투자 지표 → _apply_metrics_formats()에서 행별 처리
+        # 섹션 4/5: 투자 지표·매매 인사이트 → _apply_metrics_formats()에서 행별 처리
 
     async def _apply_metrics_formats(self, start_row: int,
                                      pct_offsets: List[int],
