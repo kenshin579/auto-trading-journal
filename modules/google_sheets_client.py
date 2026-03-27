@@ -68,7 +68,7 @@ class GoogleSheetsClient:
         # Google Sheets API는 별도의 연결 종료가 필요 없음
         pass
     
-    async def _get_sheet_id(self, sheet_name: str) -> Optional[int]:
+    async def get_sheet_id(self, sheet_name: str) -> Optional[int]:
         """시트 이름으로 sheetId를 반환 (캐시)"""
         if sheet_name not in self._sheet_id_cache:
             metadata = await self.get_spreadsheet_metadata()
@@ -265,7 +265,7 @@ class GoogleSheetsClient:
                                   start_col: int, end_col: int, color: Dict[str, float]) -> bool:
         """특정 범위에 색상을 적용합니다"""
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -318,7 +318,7 @@ class GoogleSheetsClient:
             성공 여부
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -375,7 +375,7 @@ class GoogleSheetsClient:
             성공 여부
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -452,7 +452,7 @@ class GoogleSheetsClient:
             성공 여부
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.warning(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -501,7 +501,7 @@ class GoogleSheetsClient:
             end_col: 초기화할 마지막 열 (기본: 26, Z열)
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -543,7 +543,7 @@ class GoogleSheetsClient:
             end_col: 초기화할 마지막 열 (기본: 26, Z열)
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -584,7 +584,7 @@ class GoogleSheetsClient:
             row_count: 고정할 행 수 (기본: 1)
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -624,7 +624,7 @@ class GoogleSheetsClient:
             end_col: 종료 열 (1-based, inclusive)
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -678,7 +678,7 @@ class GoogleSheetsClient:
             end_row: 종료 행 (1-based, inclusive)
         """
         try:
-            sheet_id = await self._get_sheet_id(sheet_name)
+            sheet_id = await self.get_sheet_id(sheet_name)
             if sheet_id is None:
                 logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
                 return False
@@ -719,4 +719,84 @@ class GoogleSheetsClient:
 
         except HttpError as e:
             logger.error(f"컬럼별 숫자 포맷 적용 실패 ({sheet_name}): {e}")
+            return False
+
+    async def get_charts(self, sheet_name: str) -> List[Dict[str, Any]]:
+        """시트에 포함된 차트 목록 반환
+
+        Args:
+            sheet_name: 시트 이름
+
+        Returns:
+            차트 목록 (각 항목에 chartId 포함)
+        """
+        try:
+            nfc_name = unicodedata.normalize("NFC", sheet_name)
+            metadata = await self.get_spreadsheet_metadata()
+            for sheet in metadata.get('sheets', []):
+                title = unicodedata.normalize("NFC", sheet['properties']['title'])
+                if title == nfc_name:
+                    return sheet.get('charts', [])
+            return []
+
+        except HttpError as e:
+            logger.error(f"차트 목록 조회 실패 ({sheet_name}): {e}")
+            return []
+
+    async def delete_all_charts(self, sheet_name: str) -> bool:
+        """시트의 모든 차트를 삭제
+
+        Args:
+            sheet_name: 시트 이름
+
+        Returns:
+            성공 여부
+        """
+        try:
+            charts = await self.get_charts(sheet_name)
+            if not charts:
+                return True
+
+            requests = [
+                {"deleteEmbeddedObject": {"objectId": c["chartId"]}}
+                for c in charts
+            ]
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"시트 '{sheet_name}' 차트 {len(charts)}개 삭제 완료")
+            return True
+
+        except HttpError as e:
+            logger.error(f"차트 삭제 실패 ({sheet_name}): {e}")
+            return False
+
+    async def add_charts(self, chart_specs: List[Dict[str, Any]]) -> bool:
+        """여러 차트를 한 번의 batchUpdate로 추가
+
+        Args:
+            chart_specs: 차트 스펙 리스트 (각 항목은 spec + position 포함)
+
+        Returns:
+            성공 여부
+        """
+        try:
+            if not chart_specs:
+                return True
+
+            requests = [{"addChart": {"chart": spec}} for spec in chart_specs]
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"차트 {len(chart_specs)}개 추가 완료")
+            return True
+
+        except HttpError as e:
+            logger.error(f"차트 추가 실패: {e}")
             return False
