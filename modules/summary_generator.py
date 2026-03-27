@@ -36,6 +36,7 @@ class SummaryGenerator:
         self.sheet_writer = sheet_writer
         self.sector_classifier = sector_classifier
         self._pie_data_range: Optional[Tuple[int, int]] = None
+        self._trade_count_data_range: Optional[Tuple[int, int]] = None
 
     async def generate_all(self, all_trades: List[Trade]):
         """대시보드 시트 생성 (초기화 후 재작성)"""
@@ -65,7 +66,8 @@ class SummaryGenerator:
                                             insights_start, trend_start,
                                             stock_start, current_row)
 
-        # 차트 생성
+        # 차트용 데이터 작성 및 차트 생성
+        await self._write_trade_count_data(all_trades)
         await self._create_charts(
             trend_start=trend_start,
             trend_end=stock_start - 1,
@@ -764,6 +766,49 @@ class SummaryGenerator:
         groups.append((start, end))
         return groups
 
+    async def _write_trade_count_data(self, trades: List[Trade]):
+        """월별 매수/매도 건수·금액 차트용 데이터를 Q~U열에 작성"""
+        month_stats: Dict[str, Dict[str, float]] = defaultdict(
+            lambda: {"buy_count": 0, "sell_count": 0,
+                     "buy_amount": 0.0, "sell_amount": 0.0}
+        )
+        for t in trades:
+            month = t.date[:7]
+            if t.trade_type == "매수":
+                month_stats[month]["buy_count"] += 1
+                month_stats[month]["buy_amount"] += t.amount_krw
+            elif t.trade_type == "매도":
+                month_stats[month]["sell_count"] += 1
+                month_stats[month]["sell_amount"] += t.amount_krw
+
+        if not month_stats:
+            self._trade_count_data_range = None
+            return
+
+        rows = [["연월", "매수건수", "매도건수", "매수금액(원)", "매도금액(원)"]]
+        for month in sorted(month_stats.keys()):
+            s = month_stats[month]
+            rows.append([month, s["buy_count"], s["sell_count"],
+                         s["buy_amount"], s["sell_amount"]])
+
+        start_row = 1
+        end_row = start_row + len(rows) - 1
+        await self.client.batch_update_cells(
+            DASHBOARD_SHEET, {f"Q{start_row}:U{end_row}": rows}
+        )
+        self._trade_count_data_range = (start_row, end_row)
+
+        # 금액 컬럼(T, U)에 숫자 포맷 적용 (차트 Y축 과학적 표기법 방지)
+        amount_formats = [
+            {'col': 20, 'pattern': '₩#,##0'},  # T열: 매수금액
+            {'col': 21, 'pattern': '₩#,##0'},  # U열: 매도금액
+        ]
+        await self.client.apply_number_format_to_columns(
+            DASHBOARD_SHEET, amount_formats, start_row + 1, end_row
+        )
+
+        logger.info(f"월별 매수/매도 차트 데이터: {len(rows) - 1}개월 작성")
+
     async def _create_charts(self, trend_start: int, trend_end: int):
         """대시보드 차트 생성
 
@@ -843,6 +888,38 @@ class SummaryGenerator:
             anchor_col=CHART_COL_SECONDARY,
             width=450, height=370,
         ))
+
+        # 차트 5, 6: 월별 매수/매도 건수·금액 추이
+        if self._trade_count_data_range:
+            tc_start, tc_end = self._trade_count_data_range
+
+            # 차트 5: 건수 추이 (Column, 그룹)
+            chart_specs.append(self._build_basic_chart_spec(
+                sheet_id=sheet_id,
+                title="월별 매수/매도 건수 추이",
+                chart_type="COLUMN",
+                domain_col=16,          # Q열 (연월)
+                series_cols=[17, 18],   # R열 (매수건수), S열 (매도건수)
+                data_start=tc_start - 1,
+                data_end=tc_end,
+                anchor_row=CHART_ROW_SPACING * 3,
+                anchor_col=CHART_COL_START,
+                width=600, height=370,
+            ))
+
+            # 차트 6: 금액 추이 (Column, 그룹)
+            chart_specs.append(self._build_basic_chart_spec(
+                sheet_id=sheet_id,
+                title="월별 매수/매도 금액 추이",
+                chart_type="COLUMN",
+                domain_col=16,          # Q열 (연월)
+                series_cols=[19, 20],   # T열 (매수금액), U열 (매도금액)
+                data_start=tc_start - 1,
+                data_end=tc_end,
+                anchor_row=CHART_ROW_SPACING * 3,
+                anchor_col=CHART_COL_SECONDARY,
+                width=600, height=370,
+            ))
 
         if chart_specs:
             await self.client.add_charts(chart_specs)
