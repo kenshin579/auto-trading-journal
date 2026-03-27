@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 DASHBOARD_SHEET = "대시보드"
 
+# 차트 배치 상수 (0-based 열/행 인덱스)
+CHART_COL_START = 13        # N열
+CHART_COL_SECONDARY = 20    # U열
+CHART_ROW_SPACING = 20      # 차트 간 행 간격
+
 
 class SummaryGenerator:
     """대시보드 시트 생성기"""
@@ -30,6 +35,7 @@ class SummaryGenerator:
         self.client = client
         self.sheet_writer = sheet_writer
         self.sector_classifier = sector_classifier
+        self._pie_data_range: Optional[Tuple[int, int]] = None
 
     async def generate_all(self, all_trades: List[Trade]):
         """대시보드 시트 생성 (초기화 후 재작성)"""
@@ -59,6 +65,12 @@ class SummaryGenerator:
                                             insights_start, trend_start,
                                             stock_start, current_row)
 
+        # 차트 생성
+        await self._create_charts(
+            trend_start=trend_start,
+            trend_end=stock_start - 1,
+        )
+
         logger.info("대시보드 시트 갱신 완료")
 
     async def _ensure_dashboard_sheet(self):
@@ -70,6 +82,7 @@ class SummaryGenerator:
             await self.client.clear_sheet(DASHBOARD_SHEET, start_row=1)
             await self.client.clear_background_colors(DASHBOARD_SHEET)
             await self.client.clear_number_formats(DASHBOARD_SHEET)
+            await self.client.delete_all_charts(DASHBOARD_SHEET)
 
     async def _write_portfolio_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 1: 포트폴리오 요약 (2행)"""
@@ -216,9 +229,24 @@ class SummaryGenerator:
         account_buy: Dict[str, float] = defaultdict(float)
         for t in buy_trades:
             account_buy[t.account] += t.amount_krw
+
+        # 파이 차트용 데이터 (N~O열에 별도 작성)
+        pie_data = []
         for account, amount in sorted(account_buy.items()):
             pct_rows.append(len(rows))
-            rows.append([f"  {account}", amount / total_buy if total_buy else 0])
+            ratio = amount / total_buy if total_buy else 0
+            rows.append([f"  {account}", ratio])
+            pie_data.append([account, ratio])
+
+        if pie_data:
+            pie_end_row = start_row + len(pie_data) - 1
+            await self.client.batch_update_cells(
+                DASHBOARD_SHEET,
+                {f"N{start_row}:O{pie_end_row}": pie_data}
+            )
+            self._pie_data_range = (start_row, pie_end_row)
+        else:
+            self._pie_data_range = None
 
         # 통화별 투자비중
         rows.append(["통화별 투자비중", ""])
@@ -735,6 +763,210 @@ class SummaryGenerator:
                 start = end = r
         groups.append((start, end))
         return groups
+
+    async def _create_charts(self, trend_start: int, trend_end: int):
+        """대시보드 차트 생성
+
+        Args:
+            trend_start: 섹션 5(월별 성과 추이) 헤더 행 (1-based)
+            trend_end: 섹션 5 마지막 데이터 행 (1-based)
+        """
+        sheet_id = await self.client.get_sheet_id(DASHBOARD_SHEET)
+        if sheet_id is None:
+            logger.error("대시보드 시트 ID를 찾을 수 없어 차트 생성 건너뜀")
+            return
+
+        # 섹션 5 데이터가 없으면 (헤더만 있으면) 차트 생성 스킵
+        if trend_end <= trend_start:
+            logger.info("월별 성과 추이 데이터 없음, 차트 생성 건너뜀")
+            return
+
+        # 0-based 인덱스 변환 (헤더 포함)
+        data_start_0 = trend_start - 1
+        data_end_0 = trend_end
+
+        chart_specs = []
+
+        # 차트 1: 월별 실현손익 추이 (Column)
+        chart_specs.append(self._build_basic_chart_spec(
+            sheet_id=sheet_id,
+            title="월별 실현손익 추이",
+            chart_type="COLUMN",
+            domain_col=0,
+            series_cols=[2],
+            data_start=data_start_0,
+            data_end=data_end_0,
+            anchor_row=0,
+            anchor_col=CHART_COL_START,
+            width=600, height=370,
+        ))
+
+        # 차트 2: 월별 승률·수익률 추이 (Line)
+        chart_specs.append(self._build_basic_chart_spec(
+            sheet_id=sheet_id,
+            title="월별 승률 & 수익률 추이",
+            chart_type="LINE",
+            domain_col=0,
+            series_cols=[3, 4],
+            data_start=data_start_0,
+            data_end=data_end_0,
+            anchor_row=CHART_ROW_SPACING,
+            anchor_col=CHART_COL_START,
+            width=600, height=370,
+        ))
+
+        # 차트 3: 계좌별 투자비중 (Pie)
+        if self._pie_data_range:
+            pie_start, pie_end = self._pie_data_range
+            chart_specs.append(self._build_pie_chart_spec(
+                sheet_id=sheet_id,
+                title="계좌별 투자비중",
+                label_col=CHART_COL_START,
+                value_col=CHART_COL_START + 1,
+                data_start=pie_start - 1,
+                data_end=pie_end,
+                anchor_row=CHART_ROW_SPACING * 2,
+                anchor_col=CHART_COL_START,
+                width=450, height=370,
+            ))
+
+        # 차트 4: 손익비·Profit Factor 추이 (Line)
+        chart_specs.append(self._build_basic_chart_spec(
+            sheet_id=sheet_id,
+            title="손익비 & Profit Factor 추이",
+            chart_type="LINE",
+            domain_col=0,
+            series_cols=[7, 8],
+            data_start=data_start_0,
+            data_end=data_end_0,
+            anchor_row=CHART_ROW_SPACING * 2,
+            anchor_col=CHART_COL_SECONDARY,
+            width=450, height=370,
+        ))
+
+        if chart_specs:
+            await self.client.add_charts(chart_specs)
+            logger.info(f"대시보드 차트 {len(chart_specs)}개 생성 완료")
+
+    @staticmethod
+    def _build_basic_chart_spec(
+        sheet_id: int, title: str, chart_type: str,
+        domain_col: int, series_cols: List[int],
+        data_start: int, data_end: int,
+        anchor_row: int, anchor_col: int,
+        width: int = 600, height: int = 370,
+    ) -> Dict:
+        """BasicChart 스펙 생성 (COLUMN, LINE, BAR 공용)
+
+        Args:
+            sheet_id: 시트 ID
+            title: 차트 제목
+            chart_type: COLUMN, LINE, BAR
+            domain_col: X축 컬럼 (0-based)
+            series_cols: Y축 컬럼 리스트 (0-based)
+            data_start: 데이터 시작 행 (0-based, 헤더 포함)
+            data_end: 데이터 끝 행 (0-based, exclusive)
+            anchor_row: 차트 배치 행 (0-based)
+            anchor_col: 차트 배치 열 (0-based)
+            width: 차트 너비(px)
+            height: 차트 높이(px)
+        """
+        def source_range(col: int) -> Dict:
+            return {
+                "sourceRange": {
+                    "sources": [{
+                        "sheetId": sheet_id,
+                        "startRowIndex": data_start,
+                        "endRowIndex": data_end,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1,
+                    }]
+                }
+            }
+
+        return {
+            "spec": {
+                "title": title,
+                "basicChart": {
+                    "chartType": chart_type,
+                    "legendPosition": "BOTTOM_LEGEND",
+                    "headerCount": 1,
+                    "domains": [{"domain": source_range(domain_col)}],
+                    "series": [
+                        {"series": source_range(col), "targetAxis": "LEFT_AXIS"}
+                        for col in series_cols
+                    ],
+                },
+            },
+            "position": {
+                "overlayPosition": {
+                    "anchorCell": {
+                        "sheetId": sheet_id,
+                        "rowIndex": anchor_row,
+                        "columnIndex": anchor_col,
+                    },
+                    "widthPixels": width,
+                    "heightPixels": height,
+                }
+            },
+        }
+
+    @staticmethod
+    def _build_pie_chart_spec(
+        sheet_id: int, title: str,
+        label_col: int, value_col: int,
+        data_start: int, data_end: int,
+        anchor_row: int, anchor_col: int,
+        width: int = 450, height: int = 370,
+    ) -> Dict:
+        """Pie 차트 스펙 생성
+
+        Args:
+            sheet_id: 시트 ID
+            title: 차트 제목
+            label_col: 레이블 컬럼 (0-based)
+            value_col: 값 컬럼 (0-based)
+            data_start: 데이터 시작 행 (0-based)
+            data_end: 데이터 끝 행 (0-based, exclusive)
+            anchor_row: 차트 배치 행 (0-based)
+            anchor_col: 차트 배치 열 (0-based)
+            width: 차트 너비(px)
+            height: 차트 높이(px)
+        """
+        def source_range(col: int) -> Dict:
+            return {
+                "sourceRange": {
+                    "sources": [{
+                        "sheetId": sheet_id,
+                        "startRowIndex": data_start,
+                        "endRowIndex": data_end,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1,
+                    }]
+                }
+            }
+
+        return {
+            "spec": {
+                "title": title,
+                "pieChart": {
+                    "legendPosition": "RIGHT_LEGEND",
+                    "domain": source_range(label_col),
+                    "series": source_range(value_col),
+                },
+            },
+            "position": {
+                "overlayPosition": {
+                    "anchorCell": {
+                        "sheetId": sheet_id,
+                        "rowIndex": anchor_row,
+                        "columnIndex": anchor_col,
+                    },
+                    "widthPixels": width,
+                    "heightPixels": height,
+                }
+            },
+        }
 
     async def _get_sector_map(self, buy_trades: List[Trade]) -> Dict[str, str]:
         """매수 종목 리스트에서 섹터 매핑 조회"""
