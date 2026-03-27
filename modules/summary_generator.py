@@ -797,6 +797,16 @@ class SummaryGenerator:
             DASHBOARD_SHEET, {f"Q{start_row}:U{end_row}": rows}
         )
         self._trade_count_data_range = (start_row, end_row)
+
+        # 금액 컬럼(T, U)에 숫자 포맷 적용 (차트 Y축 과학적 표기법 방지)
+        amount_formats = [
+            {'col': 20, 'pattern': '₩#,##0'},  # T열: 매수금액
+            {'col': 21, 'pattern': '₩#,##0'},  # U열: 매도금액
+        ]
+        await self.client.apply_number_format_to_columns(
+            DASHBOARD_SHEET, amount_formats, start_row + 1, end_row
+        )
+
         logger.info(f"월별 매수/매도 차트 데이터: {len(rows) - 1}개월 작성")
 
     async def _create_charts(self, trend_start: int, trend_end: int):
