@@ -767,33 +767,37 @@ class SummaryGenerator:
         return groups
 
     async def _write_trade_count_data(self, trades: List[Trade]):
-        """월별 매수/매도 건수 차트용 데이터를 Q~S열에 작성"""
-        month_counts: Dict[str, Dict[str, int]] = defaultdict(
-            lambda: {"buy": 0, "sell": 0}
+        """월별 매수/매도 건수·금액 차트용 데이터를 Q~U열에 작성"""
+        month_stats: Dict[str, Dict[str, float]] = defaultdict(
+            lambda: {"buy_count": 0, "sell_count": 0,
+                     "buy_amount": 0.0, "sell_amount": 0.0}
         )
         for t in trades:
             month = t.date[:7]
             if t.trade_type == "매수":
-                month_counts[month]["buy"] += 1
+                month_stats[month]["buy_count"] += 1
+                month_stats[month]["buy_amount"] += t.amount_krw
             elif t.trade_type == "매도":
-                month_counts[month]["sell"] += 1
+                month_stats[month]["sell_count"] += 1
+                month_stats[month]["sell_amount"] += t.amount_krw
 
-        if not month_counts:
+        if not month_stats:
             self._trade_count_data_range = None
             return
 
-        rows = [["연월", "매수건수", "매도건수"]]
-        for month in sorted(month_counts.keys()):
-            c = month_counts[month]
-            rows.append([month, c["buy"], c["sell"]])
+        rows = [["연월", "매수건수", "매도건수", "매수금액(원)", "매도금액(원)"]]
+        for month in sorted(month_stats.keys()):
+            s = month_stats[month]
+            rows.append([month, s["buy_count"], s["sell_count"],
+                         s["buy_amount"], s["sell_amount"]])
 
         start_row = 1
         end_row = start_row + len(rows) - 1
         await self.client.batch_update_cells(
-            DASHBOARD_SHEET, {f"Q{start_row}:S{end_row}": rows}
+            DASHBOARD_SHEET, {f"Q{start_row}:U{end_row}": rows}
         )
         self._trade_count_data_range = (start_row, end_row)
-        logger.info(f"월별 매수/매도 건수 차트 데이터: {len(rows) - 1}개월 작성")
+        logger.info(f"월별 매수/매도 차트 데이터: {len(rows) - 1}개월 작성")
 
     async def _create_charts(self, trend_start: int, trend_end: int):
         """대시보드 차트 생성
@@ -875,9 +879,11 @@ class SummaryGenerator:
             width=450, height=370,
         ))
 
-        # 차트 5: 월별 매수/매도 건수 추이 (Column, 그룹)
+        # 차트 5, 6: 월별 매수/매도 건수·금액 추이
         if self._trade_count_data_range:
             tc_start, tc_end = self._trade_count_data_range
+
+            # 차트 5: 건수 추이 (Column, 그룹)
             chart_specs.append(self._build_basic_chart_spec(
                 sheet_id=sheet_id,
                 title="월별 매수/매도 건수 추이",
@@ -888,6 +894,20 @@ class SummaryGenerator:
                 data_end=tc_end,
                 anchor_row=CHART_ROW_SPACING * 3,
                 anchor_col=CHART_COL_START,
+                width=600, height=370,
+            ))
+
+            # 차트 6: 금액 추이 (Column, 그룹)
+            chart_specs.append(self._build_basic_chart_spec(
+                sheet_id=sheet_id,
+                title="월별 매수/매도 금액 추이",
+                chart_type="COLUMN",
+                domain_col=16,          # Q열 (연월)
+                series_cols=[19, 20],   # T열 (매수금액), U열 (매도금액)
+                data_start=tc_start - 1,
+                data_end=tc_end,
+                anchor_row=CHART_ROW_SPACING * 3,
+                anchor_col=CHART_COL_SECONDARY,
                 width=600, height=370,
             ))
 
