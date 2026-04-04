@@ -73,42 +73,41 @@ class TestMetricsOffsetMapping:
         """pct_rows offset이 실제 비율 값 행을, krw_rows offset이 금액 행을 가리키는지 확인"""
         mock_client = AsyncMock()
         mock_client.batch_update_cells = AsyncMock(return_value=True)
-        mock_client.apply_number_format_to_columns = AsyncMock(return_value=True)
 
         mock_writer = MagicMock()
         gen = SummaryGenerator(mock_client, mock_writer, sector_classifier=None)
+        gen._dashboard_sheet_id = 0  # _collect_metrics_formats에서 사용
 
-        # rows, pct_rows, krw_rows를 캡처하기 위해 메서드 내부 로직을 재현
-        # _write_investment_metrics 호출
         start_row = 100
         await gen._write_investment_metrics(sample_trades, start_row)
 
-        # _apply_metrics_formats 호출 시 전달된 인자 검증
-        format_call = mock_client.apply_number_format_to_columns
-        assert format_call.call_count >= 1
+        # _pending_requests에 수집된 포맷 요청 검증
+        assert len(gen._pending_requests) >= 1
 
         # batch_update_cells로 전달된 rows 데이터 확인
         batch_call = mock_client.batch_update_cells
         assert batch_call.called
         call_args = batch_call.call_args
-        ranges_dict = call_args[0][1]  # 두 번째 positional arg
+        ranges_dict = call_args[0][1]
         rows = list(ranges_dict.values())[0]
 
-        # pct_rows의 각 offset이 실제로 0~1 범위 비율 값을 가리키는지 검증
-        # apply_number_format_to_columns 호출에서 PERCENT 타입 호출 추출
-        pct_calls = [
-            c for c in format_call.call_args_list
-            if any(f.get('type') == 'PERCENT' for f in c[0][1])
+        # _pending_requests에서 PERCENT/KRW 요청 추출
+        pct_reqs = [
+            r for r in gen._pending_requests
+            if r.get('repeatCell', {}).get('cell', {}).get(
+                'userEnteredFormat', {}).get('numberFormat', {}).get('type') == 'PERCENT'
         ]
-        krw_calls = [
-            c for c in format_call.call_args_list
-            if any('₩' in f.get('pattern', '') for f in c[0][1])
+        krw_reqs = [
+            r for r in gen._pending_requests
+            if '₩' in r.get('repeatCell', {}).get('cell', {}).get(
+                'userEnteredFormat', {}).get('numberFormat', {}).get('pattern', '')
         ]
 
         # PERCENT 포맷이 적용된 행들의 값이 0~1 범위인지 확인
-        for call in pct_calls:
-            fmt_start = call[0][2]  # start_row arg
-            fmt_end = call[0][3]    # end_row arg
+        for req in pct_reqs:
+            rng = req['repeatCell']['range']
+            fmt_start = rng['startRowIndex'] + 1  # 0-based → 1-based
+            fmt_end = rng['endRowIndex']           # exclusive → inclusive
             for abs_row in range(fmt_start, fmt_end + 1):
                 row_idx = abs_row - start_row
                 if 0 <= row_idx < len(rows):
@@ -118,9 +117,10 @@ class TestMetricsOffsetMapping:
                             f"Row {row_idx} ({rows[row_idx][0]}): PERCENT 포맷인데 값이 {val}"
 
         # KRW 포맷이 적용된 행들의 값이 금액인지 확인
-        for call in krw_calls:
-            fmt_start = call[0][2]
-            fmt_end = call[0][3]
+        for req in krw_reqs:
+            rng = req['repeatCell']['range']
+            fmt_start = rng['startRowIndex'] + 1
+            fmt_end = rng['endRowIndex']
             for abs_row in range(fmt_start, fmt_end + 1):
                 row_idx = abs_row - start_row
                 if 0 <= row_idx < len(rows):
@@ -134,10 +134,10 @@ class TestMetricsOffsetMapping:
         """매매 인사이트 섹션의 pct/krw offset 일관성 검증"""
         mock_client = AsyncMock()
         mock_client.batch_update_cells = AsyncMock(return_value=True)
-        mock_client.apply_number_format_to_columns = AsyncMock(return_value=True)
 
         mock_writer = MagicMock()
         gen = SummaryGenerator(mock_client, mock_writer, sector_classifier=None)
+        gen._dashboard_sheet_id = 0
 
         start_row = 200
         await gen._write_trading_insights(sample_trades, start_row)
@@ -148,16 +148,16 @@ class TestMetricsOffsetMapping:
         ranges_dict = call_args[0][1]
         rows = list(ranges_dict.values())[0]
 
-        format_call = mock_client.apply_number_format_to_columns
-
-        # KRW 포맷 적용된 행의 값이 금액인지 확인
-        krw_calls = [
-            c for c in format_call.call_args_list
-            if any('₩' in f.get('pattern', '') for f in c[0][1])
+        # _pending_requests에서 KRW 요청 추출
+        krw_reqs = [
+            r for r in gen._pending_requests
+            if '₩' in r.get('repeatCell', {}).get('cell', {}).get(
+                'userEnteredFormat', {}).get('numberFormat', {}).get('pattern', '')
         ]
-        for call in krw_calls:
-            fmt_start = call[0][2]
-            fmt_end = call[0][3]
+        for req in krw_reqs:
+            rng = req['repeatCell']['range']
+            fmt_start = rng['startRowIndex'] + 1
+            fmt_end = rng['endRowIndex']
             for abs_row in range(fmt_start, fmt_end + 1):
                 row_idx = abs_row - start_row
                 if 0 <= row_idx < len(rows):

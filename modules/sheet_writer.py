@@ -84,7 +84,6 @@ class SheetWriter:
         sheets = await self._get_sheets()
         if sheet_name in sheets:
             await self.apply_sheet_formatting(sheet_name, is_foreign)
-            await self.client.clear_background_colors(sheet_name)
             return False
 
         headers = FOREIGN_HEADERS if is_foreign else DOMESTIC_HEADERS
@@ -97,10 +96,15 @@ class SheetWriter:
         return True
 
     async def apply_sheet_formatting(self, sheet_name: str, is_foreign: bool = False):
-        """시트에 freeze + filter 적용"""
+        """시트에 freeze + filter + 배경색 초기화 적용 (1회 batchUpdate)"""
         num_cols = len(FOREIGN_HEADERS) if is_foreign else len(DOMESTIC_HEADERS)
-        await self.client.freeze_rows(sheet_name, 1)
-        await self.client.set_auto_filter(sheet_name, 1, 1, num_cols)
+        await self.client.apply_sheet_formatting_batch(
+            sheet_name,
+            freeze_row_count=1,
+            filter_start_row=1,
+            filter_start_col=1,
+            filter_end_col=num_cols,
+        )
 
     async def get_existing_keys(self, sheet_name: str, is_foreign: bool = False) -> Set[tuple]:
         """기존 데이터에서 중복 체크용 키 셋 반환
