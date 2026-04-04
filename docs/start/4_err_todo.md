@@ -38,17 +38,17 @@
 
 ## Phase 6: 테스트
 
-- [ ] `tests/test_summary_format.py` — `_collect_metrics_formats` 호출 변경에 맞춰 수정
-- [ ] `tests/test_rate_limit.py` 신규 — `build_number_format_requests()` 반환 구조 검증
-- [ ] `tests/test_rate_limit.py` — `build_color_requests()` 반환 구조 검증
-- [ ] `tests/test_rate_limit.py` — `_execute_with_retry()` 429 재시도 동작 검증 (mock)
-- [ ] `tests/test_rate_limit.py` — `apply_sheet_formatting_batch()` 요청 구조 검증 (mock)
-- [ ] `pytest` 전체 테스트 통과 확인
+- [x] `tests/test_summary_format.py` — `_collect_metrics_formats` 호출 변경에 맞춰 수정
+- [x] `tests/test_rate_limit.py` 신규 — `build_number_format_requests()` 반환 구조 검증
+- [x] `tests/test_rate_limit.py` — `build_color_requests()` 반환 구조 검증
+- [x] `tests/test_rate_limit.py` — `_execute_with_retry()` 429 재시도 동작 검증 (mock)
+- [x] `tests/test_rate_limit.py` — `apply_sheet_formatting_batch()` 요청 구조 검증 (mock)
+- [x] `pytest` 전체 테스트 통과 확인
 
 ## Phase 7: 통합 검증
 
-- [ ] `run.sh` 실행 시 429 에러 없이 완료 확인
-- [ ] 대시보드 차트 6개 정상 생성 확인
-- [ ] 대시보드 헤더 배경색, 숫자 포맷 정상 적용 확인
-- [ ] `--log-level DEBUG`로 총 쓰기 요청 수 카운트 (목표: 30회 이하)
-- [ ] 해외 계좌 CSV (다중 통화) 포맷 정상 적용 확인
+- [x] `run.sh` 실행 시 429 에러 없이 완료 확인 (0회)
+- [x] 대시보드 차트 6개 정상 생성 확인
+- [x] 대시보드 헤더 배경색, 숫자 포맷 정상 적용 확인 (46개 요청 1회 일괄)
+- [x] `--log-level DEBUG`로 총 쓰기 요청 수 카운트 (결과: 19회, 목표 30회 이하)
+- [x] 해외 계좌 CSV (다중 통화) 포맷 정상 적용 확인
