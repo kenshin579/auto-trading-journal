@@ -81,10 +81,37 @@ class SummaryGenerator:
         if DASHBOARD_SHEET not in sheets:
             await self.client.create_sheet(DASHBOARD_SHEET)
         else:
+            # 데이터 삭제 (values:clear — 별도 엔드포인트)
             await self.client.clear_sheet(DASHBOARD_SHEET, start_row=1)
-            await self.client.clear_background_colors(DASHBOARD_SHEET)
-            await self.client.clear_number_formats(DASHBOARD_SHEET)
-            await self.client.delete_all_charts(DASHBOARD_SHEET)
+
+            # 배경색 + 숫자포맷 + 차트를 1회 batchUpdate로 삭제
+            sheet_id = await self.client.get_sheet_id(DASHBOARD_SHEET)
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {'sheetId': sheet_id, 'startRowIndex': 0,
+                                  'endRowIndex': 1000, 'startColumnIndex': 0,
+                                  'endColumnIndex': 26},
+                        'cell': {'userEnteredFormat': {}},
+                        'fields': 'userEnteredFormat.backgroundColor',
+                    }
+                },
+                {
+                    'repeatCell': {
+                        'range': {'sheetId': sheet_id, 'startRowIndex': 0,
+                                  'endRowIndex': 1000, 'startColumnIndex': 0,
+                                  'endColumnIndex': 26},
+                        'cell': {'userEnteredFormat': {}},
+                        'fields': 'userEnteredFormat.numberFormat',
+                    }
+                },
+            ]
+            charts = await self.client.get_charts(DASHBOARD_SHEET)
+            for c in charts:
+                requests.append(
+                    {'deleteEmbeddedObject': {'objectId': c['chartId']}}
+                )
+            await self.client.execute_batch_requests(requests)
 
     async def _write_portfolio_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 1: 포트폴리오 요약 (2행)"""
