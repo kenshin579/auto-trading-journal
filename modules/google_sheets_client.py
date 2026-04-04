@@ -4,7 +4,9 @@ Google Sheets API v4 클라이언트
 MCP 대신 Google Sheets API를 직접 사용합니다.
 """
 
+import asyncio
 import logging
+import random
 import unicodedata
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -67,7 +69,23 @@ class GoogleSheetsClient:
         """비동기 컨텍스트 관리자 종료"""
         # Google Sheets API는 별도의 연결 종료가 필요 없음
         pass
-    
+
+    async def _execute_with_retry(self, request_fn, max_retries: int = 3):
+        """API 요청 실행 + 429 에러 시 exponential backoff 재시도"""
+        for attempt in range(max_retries + 1):
+            try:
+                return request_fn().execute()
+            except HttpError as e:
+                if e.resp.status == 429 and attempt < max_retries:
+                    wait = min(2 ** attempt + random.uniform(0, 1), 64)
+                    logger.warning(
+                        f"Rate limit 도달, {wait:.1f}초 후 재시도 "
+                        f"({attempt + 1}/{max_retries})"
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+
     async def get_sheet_id(self, sheet_name: str) -> Optional[int]:
         """시트 이름으로 sheetId를 반환 (캐시)"""
         if sheet_name not in self._sheet_id_cache:
@@ -248,15 +266,17 @@ class GoogleSheetsClient:
                 'data': data
             }
             
-            result = self.service.spreadsheets().values().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body=body
-            ).execute()
-            
+            result = await self._execute_with_retry(
+                lambda: self.service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body=body
+                )
+            )
+
             total_updated_cells = result.get('totalUpdatedCells', 0)
             logger.info(f"배치 업데이트: 총 {total_updated_cells}개 셀 업데이트 완료")
             return True
-            
+
         except HttpError as e:
             logger.error(f"배치 업데이트 실패: {e}")
             return False
@@ -709,10 +729,12 @@ class GoogleSheetsClient:
             if not requests:
                 return True
 
-            self.service.spreadsheets().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body={'requests': requests}
-            ).execute()
+            await self._execute_with_retry(
+                lambda: self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={'requests': requests}
+                )
+            )
 
             logger.info(f"컬럼별 숫자 포맷 적용 완료: {sheet_name} ({len(column_formats)}개 컬럼)")
             return True
@@ -789,14 +811,197 @@ class GoogleSheetsClient:
 
             requests = [{"addChart": {"chart": spec}} for spec in chart_specs]
 
-            self.service.spreadsheets().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body={'requests': requests}
-            ).execute()
+            await self._execute_with_retry(
+                lambda: self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={'requests': requests}
+                )
+            )
 
             logger.info(f"차트 {len(chart_specs)}개 추가 완료")
             return True
 
         except HttpError as e:
             logger.error(f"차트 추가 실패: {e}")
+            return False
+
+    # ── 배치 요청 빌더/실행 ──────────────────────────────────
+
+    @staticmethod
+    def build_number_format_requests(
+        sheet_id: int,
+        column_formats: List[Dict[str, Any]],
+        start_row: int, end_row: int,
+    ) -> List[Dict[str, Any]]:
+        """숫자 포맷 repeatCell 요청 객체 생성 (API 호출 없음)
+
+        Args:
+            sheet_id: 시트 ID (0-based sheetId)
+            column_formats: [{'col': int (1-based), 'pattern': str, 'type': str (optional)}, ...]
+            start_row: 시작 행 (1-based)
+            end_row: 종료 행 (1-based, inclusive)
+
+        Returns:
+            batchUpdate에 포함할 repeatCell 요청 리스트
+        """
+        requests = []
+        for fmt in column_formats:
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': start_row - 1,
+                        'endRowIndex': end_row,
+                        'startColumnIndex': fmt['col'] - 1,
+                        'endColumnIndex': fmt['col'],
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': fmt.get('type', 'NUMBER'),
+                                'pattern': fmt['pattern'],
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat',
+                }
+            })
+        return requests
+
+    @staticmethod
+    def build_color_requests(
+        sheet_id: int,
+        color_ranges: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """배경색 repeatCell 요청 객체 생성 (API 호출 없음)
+
+        Args:
+            sheet_id: 시트 ID
+            color_ranges: [{'start_row': int, 'end_row': int,
+                           'start_col': int, 'end_col': int,
+                           'color': Dict[str, float]}, ...]
+
+        Returns:
+            batchUpdate에 포함할 repeatCell 요청 리스트
+        """
+        requests = []
+        for cr in color_ranges:
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': cr['start_row'] - 1,
+                        'endRowIndex': cr['end_row'],
+                        'startColumnIndex': cr['start_col'] - 1,
+                        'endColumnIndex': cr['end_col'],
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'backgroundColor': cr['color'],
+                        }
+                    },
+                    'fields': 'userEnteredFormat.backgroundColor',
+                }
+            })
+        return requests
+
+    async def execute_batch_requests(self, requests: List[Dict[str, Any]]) -> bool:
+        """여러 batchUpdate 요청을 한 번에 실행
+
+        Args:
+            requests: batchUpdate 요청 리스트
+
+        Returns:
+            성공 여부
+        """
+        if not requests:
+            return True
+        try:
+            await self._execute_with_retry(
+                lambda: self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={'requests': requests}
+                )
+            )
+            logger.info(f"배치 요청 {len(requests)}개 실행 완료")
+            return True
+        except HttpError as e:
+            logger.error(f"배치 요청 실행 실패: {e}")
+            return False
+
+    async def apply_sheet_formatting_batch(
+        self, sheet_name: str,
+        freeze_row_count: int = 1,
+        filter_start_row: int = 1,
+        filter_start_col: int = 1,
+        filter_end_col: int = 9,
+        clear_bg_end_row: int = 1000,
+        clear_bg_end_col: int = 26,
+    ) -> bool:
+        """시트 포맷팅(행고정 + 필터 + 배경색초기화)을 1회 batchUpdate로 적용
+
+        Args:
+            sheet_name: 시트 이름
+            freeze_row_count: 고정할 행 수
+            filter_start_row: 필터 시작 행 (1-based)
+            filter_start_col: 필터 시작 열 (1-based)
+            filter_end_col: 필터 종료 열 (1-based, inclusive)
+            clear_bg_end_row: 배경색 초기화 마지막 행
+            clear_bg_end_col: 배경색 초기화 마지막 열
+        """
+        try:
+            sheet_id = await self.get_sheet_id(sheet_name)
+            if sheet_id is None:
+                logger.error(f"시트 '{sheet_name}'를 찾을 수 없습니다")
+                return False
+
+            requests = [
+                {
+                    'updateSheetProperties': {
+                        'properties': {
+                            'sheetId': sheet_id,
+                            'gridProperties': {'frozenRowCount': freeze_row_count},
+                        },
+                        'fields': 'gridProperties.frozenRowCount',
+                    }
+                },
+                {'clearBasicFilter': {'sheetId': sheet_id}},
+                {
+                    'setBasicFilter': {
+                        'filter': {
+                            'range': {
+                                'sheetId': sheet_id,
+                                'startRowIndex': filter_start_row - 1,
+                                'startColumnIndex': filter_start_col - 1,
+                                'endColumnIndex': filter_end_col,
+                            }
+                        }
+                    }
+                },
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': clear_bg_end_row,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': clear_bg_end_col,
+                        },
+                        'cell': {'userEnteredFormat': {}},
+                        'fields': 'userEnteredFormat.backgroundColor',
+                    }
+                },
+            ]
+
+            await self._execute_with_retry(
+                lambda: self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={'requests': requests},
+                )
+            )
+            logger.info(f"시트 '{sheet_name}' 포맷팅 일괄 적용 완료")
+            return True
+
+        except HttpError as e:
+            logger.error(f"시트 포맷팅 일괄 적용 실패 ({sheet_name}): {e}")
             return False
