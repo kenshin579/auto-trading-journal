@@ -192,17 +192,20 @@ class SummaryGenerator:
                 g["profit"], profit_rate,
             ])
 
-        # 헤더 + 데이터 작성
-        await self.client.update_cells(DASHBOARD_SHEET, f"A{start_row}", [headers])
+        # 헤더 + 데이터 작성 (1회 batch)
         if rows:
+            all_rows = [headers] + rows
             end_row = start_row + len(rows)
             await self.client.batch_update_cells(
-                DASHBOARD_SHEET, {f"A{start_row + 1}:H{end_row}": rows}
+                DASHBOARD_SHEET, {f"A{start_row}:H{end_row}": all_rows}
             )
             logger.info(f"대시보드 월별 성과: {len(rows)}행 작성")
             return end_row + 1
-
-        return start_row + 1
+        else:
+            await self.client.batch_update_cells(
+                DASHBOARD_SHEET, {f"A{start_row}:H{start_row}": [headers]}
+            )
+            return start_row + 1
 
     async def _write_stock_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 3: 종목별 현황"""
@@ -242,17 +245,20 @@ class SummaryGenerator:
                 g["profit"], profit_rate, weight,
             ])
 
-        # 헤더 + 데이터 작성
-        await self.client.update_cells(DASHBOARD_SHEET, f"A{start_row}", [headers])
+        # 헤더 + 데이터 작성 (1회 batch)
         if rows:
+            all_rows = [headers] + rows
             end_row = start_row + len(rows)
             await self.client.batch_update_cells(
-                DASHBOARD_SHEET, {f"A{start_row + 1}:K{end_row}": rows}
+                DASHBOARD_SHEET, {f"A{start_row}:K{end_row}": all_rows}
             )
             logger.info(f"대시보드 종목별 현황: {len(rows)}행 작성")
             return end_row + 1
-
-        return start_row + 1
+        else:
+            await self.client.batch_update_cells(
+                DASHBOARD_SHEET, {f"A{start_row}:K{start_row}": [headers]}
+            )
+            return start_row + 1
 
     async def _write_investment_metrics(self, trades: List[Trade], start_row: int) -> int:
         """섹션 4: 투자 지표"""
@@ -517,16 +523,19 @@ class SummaryGenerator:
                 d["mom_change"] if d["mom_change"] is not None else "",
             ])
 
-        await self.client.update_cells(DASHBOARD_SHEET, f"A{start_row}", [headers])
         if rows:
+            all_rows = [headers] + rows
             end_row = start_row + len(rows)
             await self.client.batch_update_cells(
-                DASHBOARD_SHEET, {f"A{start_row + 1}:K{end_row}": rows}
+                DASHBOARD_SHEET, {f"A{start_row}:K{end_row}": all_rows}
             )
             logger.info(f"대시보드 월별 성과 추이: {len(rows)}행 작성")
             return end_row + 1
-
-        return start_row + 1
+        else:
+            await self.client.batch_update_cells(
+                DASHBOARD_SHEET, {f"A{start_row}:K{start_row}": [headers]}
+            )
+            return start_row + 1
 
     @staticmethod
     def _calc_monthly_trend(sorted_sells: List[Trade]) -> List[Dict]:
