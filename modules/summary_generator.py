@@ -37,10 +37,16 @@ class SummaryGenerator:
         self.sector_classifier = sector_classifier
         self._pie_data_range: Optional[Tuple[int, int]] = None
         self._trade_count_data_range: Optional[Tuple[int, int]] = None
+        self._pending_requests: List[Dict] = []
+        self._dashboard_sheet_id: Optional[int] = None
 
     async def generate_all(self, all_trades: List[Trade]):
         """대시보드 시트 생성 (초기화 후 재작성)"""
+        self._pending_requests = []
         await self._ensure_dashboard_sheet()
+
+        # sheet_id 1회 조회 후 캐시
+        self._dashboard_sheet_id = await self.client.get_sheet_id(DASHBOARD_SHEET)
 
         current_row = 1
         current_row = await self._write_portfolio_summary(all_trades, current_row)
@@ -60,14 +66,19 @@ class SummaryGenerator:
         stock_start = current_row
         current_row = await self._write_stock_summary(all_trades, current_row)
 
-        # 포맷 적용
-        await self._apply_header_colors(monthly_start, trend_start, stock_start)
-        await self._apply_dashboard_formats(monthly_start, metrics_start,
-                                            insights_start, trend_start,
-                                            stock_start, current_row)
+        # 포맷/색상 요청을 _pending_requests에 수집
+        self._collect_header_colors(monthly_start, trend_start, stock_start)
+        self._collect_dashboard_formats(monthly_start, metrics_start,
+                                        insights_start, trend_start,
+                                        stock_start, current_row)
 
-        # 차트용 데이터 작성 및 차트 생성
+        # 차트용 데이터 작성 (포맷 요청도 수집됨)
         await self._write_trade_count_data(all_trades)
+
+        # 수집된 포맷/색상 요청을 1회로 전송
+        await self._flush_pending_requests()
+
+        # 차트 생성
         await self._create_charts(
             trend_start=trend_start,
             trend_end=stock_start - 1,
@@ -348,7 +359,7 @@ class SummaryGenerator:
         )
 
         # 행별 포맷 적용
-        await self._apply_metrics_formats(start_row, pct_rows, krw_rows, len(rows))
+        self._collect_metrics_formats(start_row, pct_rows, krw_rows, len(rows))
 
         logger.info(f"대시보드 투자 지표: {len(rows)}행 작성")
         return start_row + len(rows)
@@ -473,7 +484,7 @@ class SummaryGenerator:
         )
 
         # 행별 포맷 적용
-        await self._apply_metrics_formats(start_row, pct_rows, krw_rows, len(rows))
+        self._collect_metrics_formats(start_row, pct_rows, krw_rows, len(rows))
 
         logger.info(f"대시보드 매매 인사이트: {len(rows)}행 작성")
         return start_row + len(rows)
@@ -659,9 +670,9 @@ class SummaryGenerator:
             "min_count": monthly_counts[min_month],
         }
 
-    async def _apply_header_colors(self, monthly_start: int,
-                                     trend_start: int, stock_start: int):
-        """대시보드 헤더 행에 배경색 적용"""
+    def _collect_header_colors(self, monthly_start: int,
+                               trend_start: int, stock_start: int):
+        """대시보드 헤더 행 배경색 요청을 _pending_requests에 수집"""
         header_color = {'red': 0.24, 'green': 0.52, 'blue': 0.78}  # 파란색
         header_rows = [
             {'row': 1, 'end_col': 7},              # 포트폴리오 요약 (A~G)
@@ -670,24 +681,23 @@ class SummaryGenerator:
             {'row': stock_start, 'end_col': 11},    # 종목별 현황 (A~K)
         ]
 
-        color_ranges = []
-        for h in header_rows:
-            color_ranges.append({
-                'start_row': h['row'],
-                'end_row': h['row'],
-                'start_col': 1,
-                'end_col': h['end_col'],
-                'color': header_color,
-            })
+        color_ranges = [
+            {'start_row': h['row'], 'end_row': h['row'],
+             'start_col': 1, 'end_col': h['end_col'], 'color': header_color}
+            for h in header_rows
+        ]
+        self._pending_requests.extend(
+            GoogleSheetsClient.build_color_requests(self._dashboard_sheet_id, color_ranges)
+        )
 
-        await self.client.batch_apply_colors(DASHBOARD_SHEET, color_ranges)
-        logger.info("대시보드 헤더 배경색 적용 완료")
+    def _collect_dashboard_formats(self, monthly_start: int,
+                                    metrics_start: int, insights_start: int,
+                                    trend_start: int, stock_start: int,
+                                    total_rows: int):
+        """대시보드 숫자 포맷 요청을 _pending_requests에 수집"""
+        sid = self._dashboard_sheet_id
+        _build = GoogleSheetsClient.build_number_format_requests
 
-    async def _apply_dashboard_formats(self, monthly_start: int,
-                                       metrics_start: int, insights_start: int,
-                                       trend_start: int, stock_start: int,
-                                       total_rows: int):
-        """대시보드 시트에 숫자 포맷 적용"""
         # 섹션 1: 포트폴리오 요약 (행 2)
         portfolio_formats = [
             {'col': 2, 'pattern': '₩#,##0'},     # B: 총 매수금액
@@ -697,9 +707,7 @@ class SummaryGenerator:
             {'col': 6, 'pattern': '#,##0'},       # F: 총 거래건수
             {'col': 7, 'pattern': '0.00%', 'type': 'PERCENT'},  # G: 승률
         ]
-        await self.client.apply_number_format_to_columns(
-            DASHBOARD_SHEET, portfolio_formats, 2, 2
-        )
+        self._pending_requests.extend(_build(sid, portfolio_formats, 2, 2))
 
         # 섹션 2: 월별 성과 (monthly_start+1 ~ metrics_start-2)
         monthly_data_end = metrics_start - 2
@@ -712,8 +720,8 @@ class SummaryGenerator:
                 {'col': 7, 'pattern': '₩#,##0'},     # G: 실현손익
                 {'col': 8, 'pattern': '0.00%', 'type': 'PERCENT'},  # H: 수익률
             ]
-            await self.client.apply_number_format_to_columns(
-                DASHBOARD_SHEET, monthly_formats, monthly_start + 1, monthly_data_end
+            self._pending_requests.extend(
+                _build(sid, monthly_formats, monthly_start + 1, monthly_data_end)
             )
 
         # 섹션 6: 월별 성과 추이 (trend_start+1 ~ stock_start-2)
@@ -731,8 +739,8 @@ class SummaryGenerator:
                 {'col': 10, 'pattern': '₩#,##0'},                        # J: 기대값
                 {'col': 11, 'pattern': '0.0%', 'type': 'PERCENT'},       # K: 전월대비
             ]
-            await self.client.apply_number_format_to_columns(
-                DASHBOARD_SHEET, trend_formats, trend_start + 1, trend_data_end
+            self._pending_requests.extend(
+                _build(sid, trend_formats, trend_start + 1, trend_data_end)
             )
 
         # 섹션 3: 종목별 현황 (stock_start+1 ~ total_rows)
@@ -747,21 +755,24 @@ class SummaryGenerator:
                 {'col': 10, 'pattern': '0.00%', 'type': 'PERCENT'},  # J: 수익률
                 {'col': 11, 'pattern': '0.00%', 'type': 'PERCENT'},  # K: 투자비중
             ]
-            await self.client.apply_number_format_to_columns(
-                DASHBOARD_SHEET, stock_formats, stock_start + 1, stock_data_end
+            self._pending_requests.extend(
+                _build(sid, stock_formats, stock_start + 1, stock_data_end)
             )
 
-        # 섹션 4/5: 투자 지표·매매 인사이트 → _apply_metrics_formats()에서 행별 처리
+        # 섹션 4/5: 투자 지표·매매 인사이트 → _collect_metrics_formats()에서 행별 처리
 
-    async def _apply_metrics_formats(self, start_row: int,
-                                     pct_offsets: List[int],
-                                     krw_offsets: List[int],
-                                     total_rows: int):
-        """투자 지표 섹션 행별 포맷 적용 (연속 행 그룹핑)"""
+    def _collect_metrics_formats(self, start_row: int,
+                                 pct_offsets: List[int],
+                                 krw_offsets: List[int],
+                                 total_rows: int):
+        """투자 지표 섹션 행별 포맷 요청을 _pending_requests에 수집"""
+        sid = self._dashboard_sheet_id
+        _build = GoogleSheetsClient.build_number_format_requests
+
         # 1단계: 섹션 전체 B열을 기본 NUMBER 포맷으로 초기화
         default_fmt = [{'col': 2, 'pattern': '#,##0.##'}]
-        await self.client.apply_number_format_to_columns(
-            DASHBOARD_SHEET, default_fmt, start_row, start_row + total_rows - 1
+        self._pending_requests.extend(
+            _build(sid, default_fmt, start_row, start_row + total_rows - 1)
         )
 
         # 2단계: pct/krw 개별 포맷 적용
@@ -773,9 +784,7 @@ class SummaryGenerator:
                 continue
             abs_rows = sorted(start_row + o for o in offsets)
             for r_start, r_end in self._group_consecutive_rows(abs_rows):
-                await self.client.apply_number_format_to_columns(
-                    DASHBOARD_SHEET, fmt, r_start, r_end
-                )
+                self._pending_requests.extend(_build(sid, fmt, r_start, r_end))
 
     @staticmethod
     def _group_consecutive_rows(rows: List[int]) -> List[Tuple[int, int]]:
@@ -792,6 +801,13 @@ class SummaryGenerator:
                 start = end = r
         groups.append((start, end))
         return groups
+
+    async def _flush_pending_requests(self):
+        """수집된 포맷/색상 요청을 1회 batchUpdate로 전송"""
+        if self._pending_requests:
+            await self.client.execute_batch_requests(self._pending_requests)
+            logger.info(f"대시보드 포맷/색상 {len(self._pending_requests)}개 요청 일괄 적용 완료")
+            self._pending_requests = []
 
     async def _write_trade_count_data(self, trades: List[Trade]):
         """월별 매수/매도 건수·금액 차트용 데이터를 Q~U열에 작성"""
@@ -830,8 +846,10 @@ class SummaryGenerator:
             {'col': 20, 'pattern': '₩#,##0'},  # T열: 매수금액
             {'col': 21, 'pattern': '₩#,##0'},  # U열: 매도금액
         ]
-        await self.client.apply_number_format_to_columns(
-            DASHBOARD_SHEET, amount_formats, start_row + 1, end_row
+        self._pending_requests.extend(
+            GoogleSheetsClient.build_number_format_requests(
+                self._dashboard_sheet_id, amount_formats, start_row + 1, end_row
+            )
         )
 
         logger.info(f"월별 매수/매도 차트 데이터: {len(rows) - 1}개월 작성")
