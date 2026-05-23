@@ -1,6 +1,7 @@
 """KRX 종목 마스터 파서/리졸버 테스트"""
 
 import io
+import os
 import time
 import zipfile
 
@@ -65,22 +66,24 @@ def test_fetch_zip_uses_fresh_cache_without_download(tmp_path, monkeypatch):
         raise AssertionError("신선한 캐시가 있으면 다운로드하면 안 됨")
 
     monkeypatch.setattr("modules.symbol_master._download", _boom)
+    mtime_before = cache_file.stat().st_mtime
     assert _fetch_zip("http://x", "kospi_code.mst.zip") == b"cached-bytes"
+    assert cache_file.stat().st_mtime == mtime_before  # 캐시 히트는 mtime을 갱신하지 않아야 함
 
 
 def test_fetch_zip_downloads_when_cache_missing(tmp_path, monkeypatch):
+    zip_bytes = _make_zip("kospi_code.mst", b"data")
     monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
-    monkeypatch.setattr("modules.symbol_master._download", lambda url: b"downloaded")
+    monkeypatch.setattr("modules.symbol_master._download", lambda url: zip_bytes)
     result = _fetch_zip("http://x", "kospi_code.mst.zip")
-    assert result == b"downloaded"
-    assert (tmp_path / "kospi_code.mst.zip").read_bytes() == b"downloaded"
+    assert result == zip_bytes
+    assert (tmp_path / "kospi_code.mst.zip").read_bytes() == zip_bytes
 
 
 def test_fetch_zip_falls_back_to_stale_cache_on_download_error(tmp_path, monkeypatch):
     cache_file = tmp_path / "kospi_code.mst.zip"
     cache_file.write_bytes(b"stale")
     old = time.time() - 100 * 24 * 3600
-    import os
     os.utime(cache_file, (old, old))
     monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
 
@@ -89,3 +92,20 @@ def test_fetch_zip_falls_back_to_stale_cache_on_download_error(tmp_path, monkeyp
 
     monkeypatch.setattr("modules.symbol_master._download", _boom)
     assert _fetch_zip("http://x", "kospi_code.mst.zip") == b"stale"
+
+
+def test_extract_mst_text_raises_on_missing_mst():
+    zip_bytes = _make_zip("kospi_code.dat", b"wrong")  # .mst 없음
+    with pytest.raises(ValueError, match=".mst"):
+        _extract_mst_text(zip_bytes)
+
+
+def test_fetch_zip_raises_when_no_cache_and_download_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
+
+    def _boom(url):
+        raise OSError("network down")
+
+    monkeypatch.setattr("modules.symbol_master._download", _boom)
+    with pytest.raises(OSError, match="network down"):
+        _fetch_zip("http://x", "kospi_code.mst.zip")

@@ -21,6 +21,7 @@ KOSDAQ_FWF_LEN = 221
 
 KOSPI_URL = "https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip"
 KOSDAQ_URL = "https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip"
+# KRX 마스터는 영업일마다 갱신되나 종목코드 변동은 드물어 7일 캐시로 충분
 CACHE_TTL_SEC = 7 * 24 * 3600
 
 
@@ -42,6 +43,10 @@ def _fetch_zip(url: str, cache_name: str) -> bytes:
         return path.read_bytes()
     try:
         data = _download(url)
+        try:
+            zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile as exc:
+            raise ValueError(f"다운로드 데이터가 유효한 ZIP이 아닙니다 ({cache_name})") from exc
         path.write_bytes(data)
         return data
     except Exception as e:
@@ -54,7 +59,9 @@ def _fetch_zip(url: str, cache_name: str) -> bytes:
 def _extract_mst_text(zip_bytes: bytes) -> str:
     """ZIP byte 에서 .mst 파일을 찾아 cp949 디코드한 텍스트 반환."""
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        mst_name = next(n for n in z.namelist() if n.endswith(".mst"))
+        mst_name = next((n for n in z.namelist() if n.endswith(".mst")), None)
+        if mst_name is None:
+            raise ValueError(f"ZIP에 .mst 파일이 없습니다 (entries: {z.namelist()})")
         raw = z.read(mst_name)
     return raw.decode("cp949")
 
