@@ -17,6 +17,7 @@ import yaml
 
 from modules.models import Trade
 from modules.parser_registry import detect_parser
+from modules.symbol_master import SymbolResolver
 from modules.google_sheets_client import GoogleSheetsClient
 from modules.sector_classifier import SectorClassifier
 from modules.sheet_writer import SheetWriter
@@ -38,6 +39,18 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def enrich_domestic_codes(trades: List[Trade], resolver: SymbolResolver) -> None:
+    """국내 거래 중 종목코드가 비어있는 항목을 KRX 마스터로 보강 (in-place).
+
+    해외 거래와 이미 코드가 있는 거래(예: 한국투자 국내)는 건드리지 않는다.
+    """
+    for t in trades:
+        if t.is_domestic() and not t.stock_code:
+            code = resolver.resolve(t.stock_name)
+            if code:
+                t.stock_code = code
 
 
 class StockDataProcessor:
@@ -79,6 +92,9 @@ class StockDataProcessor:
             self.client, self.sheet_writer, sector_classifier
         )
 
+        # KRX 종목 마스터 리졸버 (최초 resolve 시 lazy 로드)
+        self.symbol_resolver = SymbolResolver()
+
     def scan_csv_files(self) -> List[Tuple[str, str, Path]]:
         """input/ 하위 CSV 파일 스캔
 
@@ -119,6 +135,7 @@ class StockDataProcessor:
             return []
 
         trades = parser.parse(file_path, account)
+        enrich_domestic_codes(trades, self.symbol_resolver)
         if not trades:
             logger.warning(f"파싱 결과 없음: {file_path.name}")
             return []
