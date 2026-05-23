@@ -13,6 +13,7 @@ from modules.symbol_master import (
     _fetch_zip,
     KOSPI_FWF_LEN,
     KOSDAQ_FWF_LEN,
+    SymbolResolver,
 )
 
 
@@ -109,3 +110,30 @@ def test_fetch_zip_raises_when_no_cache_and_download_fails(tmp_path, monkeypatch
     monkeypatch.setattr("modules.symbol_master._download", _boom)
     with pytest.raises(OSError, match="network down"):
         _fetch_zip("http://x", "kospi_code.mst.zip")
+
+
+class TestSymbolResolver:
+    def test_resolve_returns_code_for_known_name(self):
+        resolver = SymbolResolver(name_to_code={"TIGER 조선TOP10": "494670"})
+        assert resolver.resolve("TIGER 조선TOP10") == "494670"
+
+    def test_resolve_strips_whitespace(self):
+        resolver = SymbolResolver(name_to_code={"삼성전자": "005930"})
+        assert resolver.resolve("  삼성전자  ") == "005930"
+
+    def test_resolve_returns_empty_for_unknown(self, caplog):
+        resolver = SymbolResolver(name_to_code={})
+        assert resolver.resolve("없는종목") == ""
+
+    def test_resolve_lazy_loads_only_once(self, monkeypatch):
+        calls = {"n": 0}
+
+        def _fake_load():
+            calls["n"] += 1
+            return {"삼성전자": "005930"}
+
+        monkeypatch.setattr("modules.symbol_master._load_all", _fake_load)
+        resolver = SymbolResolver()
+        resolver.resolve("삼성전자")
+        resolver.resolve("삼성전자")
+        assert calls["n"] == 1
