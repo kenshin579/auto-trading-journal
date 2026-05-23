@@ -306,6 +306,29 @@ class TestHankookDomesticParser:
             parser.parse(csv_file, "테스트")
 
 
+from modules.models import Trade
+
+
+def _domestic_trade(**kw):
+    base = dict(
+        date="2026-02-13", trade_type="매수", stock_name="TIGER 조선TOP10",
+        stock_code="494670", quantity=2, price=28230, amount=56460,
+        currency="KRW", exchange_rate=1.0, amount_krw=56460, fee=0.0, tax=0.0,
+        profit=0.0, profit_krw=0.0, profit_rate=0.0, account="미래에셋증권_국내계좌",
+    )
+    base.update(kw)
+    return Trade(**base)
+
+
+def test_to_domestic_row_includes_stock_code():
+    row = _domestic_trade().to_domestic_row()
+    assert len(row) == 10
+    # 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률
+    assert row[2] == "TIGER 조선TOP10"
+    assert row[3] == "494670"
+    assert row[4] == 2
+
+
 class TestParserRegistry:
     """파서 레지스트리 테스트"""
 
