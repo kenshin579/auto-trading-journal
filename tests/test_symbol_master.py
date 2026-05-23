@@ -1,7 +1,15 @@
 """KRX 종목 마스터 파서/리졸버 테스트"""
 
+import io
+import time
+import zipfile
+
+import pytest
+
 from modules.symbol_master import (
     _parse_mst_lines,
+    _extract_mst_text,
+    _fetch_zip,
     KOSPI_FWF_LEN,
     KOSDAQ_FWF_LEN,
 )
@@ -34,3 +42,50 @@ def test_parse_mst_lines_first_occurrence_wins():
     ])
     result = _parse_mst_lines(text, KOSDAQ_FWF_LEN)
     assert result["중복명"] == "111111"
+
+
+def _make_zip(mst_name: str, content: bytes) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(mst_name, content)
+    return buf.getvalue()
+
+
+def test_extract_mst_text_decodes_cp949():
+    zip_bytes = _make_zip("kospi_code.mst", "삼성전자".encode("cp949"))
+    assert _extract_mst_text(zip_bytes) == "삼성전자"
+
+
+def test_fetch_zip_uses_fresh_cache_without_download(tmp_path, monkeypatch):
+    cache_file = tmp_path / "kospi_code.mst.zip"
+    cache_file.write_bytes(b"cached-bytes")
+    monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
+
+    def _boom(url):
+        raise AssertionError("신선한 캐시가 있으면 다운로드하면 안 됨")
+
+    monkeypatch.setattr("modules.symbol_master._download", _boom)
+    assert _fetch_zip("http://x", "kospi_code.mst.zip") == b"cached-bytes"
+
+
+def test_fetch_zip_downloads_when_cache_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
+    monkeypatch.setattr("modules.symbol_master._download", lambda url: b"downloaded")
+    result = _fetch_zip("http://x", "kospi_code.mst.zip")
+    assert result == b"downloaded"
+    assert (tmp_path / "kospi_code.mst.zip").read_bytes() == b"downloaded"
+
+
+def test_fetch_zip_falls_back_to_stale_cache_on_download_error(tmp_path, monkeypatch):
+    cache_file = tmp_path / "kospi_code.mst.zip"
+    cache_file.write_bytes(b"stale")
+    old = time.time() - 100 * 24 * 3600
+    import os
+    os.utime(cache_file, (old, old))
+    monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
+
+    def _boom(url):
+        raise OSError("network down")
+
+    monkeypatch.setattr("modules.symbol_master._download", _boom)
+    assert _fetch_zip("http://x", "kospi_code.mst.zip") == b"stale"
