@@ -68,18 +68,20 @@ DOMESTIC_ROW = [
     "2026-02-13",  # A: 일자
     "매수",         # B: 구분
     "TIGER 조선TOP10",  # C: 종목명
-    2.0,            # D: 수량
-    28230.0,        # E: 단가
-    56460.0,        # F: 금액
-    0.0,            # G: 수수료
-    0.0,            # H: 손익금액
-    0.0,            # I: 수익률(%) — 시트에 0.00% 포맷으로 저장된 소수값
+    "494670",       # D: 종목코드
+    2.0,            # E: 수량
+    28230.0,        # F: 단가
+    56460.0,        # G: 금액
+    0.0,            # H: 수수료
+    0.0,            # I: 손익금액
+    0.0,            # J: 수익률(%) — 시트에 0.00% 포맷으로 저장된 소수값
 ]
 
 DOMESTIC_SELL_ROW = [
     "2026-02-13",
     "매도",
     "KODEX 미국배당다우존스",
+    "229200",       # 종목코드
     9.0,
     12452.0,
     112068.0,
@@ -172,7 +174,7 @@ class TestRowToTrade:
         assert trade.date == "2026-02-13"
         assert trade.trade_type == "매수"
         assert trade.stock_name == "TIGER 조선TOP10"
-        assert trade.stock_code == ""
+        assert trade.stock_code == "494670"
         assert trade.quantity == 2.0
         assert trade.price == 28230.0
         assert trade.amount == 56460.0
@@ -232,7 +234,7 @@ class TestReadTradesFromSheet:
         """빈 행이 포함된 데이터에서 유효한 행만 파싱."""
         grid_data = _build_grid_data([
             DOMESTIC_ROW,
-            ["", "", "", 0, 0, 0, 0, 0, 0],  # 빈 날짜 → 스킵
+            ["", "", "", "", 0, 0, 0, 0, 0, 0],  # 빈 날짜 → 스킵
             DOMESTIC_SELL_ROW,
         ])
         mock_client.get_raw_grid_data.return_value = grid_data
@@ -336,3 +338,19 @@ class TestReadAllTrades:
         trades = await writer.read_all_trades()
         assert len(trades) == 1  # NFC 1건만 읽고 NFD는 스킵
         assert mock_client.get_raw_grid_data.call_count == 1
+
+
+def test_row_to_trade_domestic_reads_stock_code():
+    # 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익, 수익률
+    values = [
+        _cell("2026-02-13"), _cell("매수"), _cell("TIGER 조선TOP10"),
+        _cell("494670"), _cell(2), _cell(28230), _cell(56460),
+        _cell(0), _cell(0), _cell(0.0),
+    ]
+    trade = _row_to_trade(values, "미래에셋증권_국내계좌", is_foreign=False,
+                          date_val="2026-02-13")
+    assert trade is not None
+    assert trade.stock_name == "TIGER 조선TOP10"
+    assert trade.stock_code == "494670"
+    assert trade.quantity == 2
+    assert trade.price == 28230

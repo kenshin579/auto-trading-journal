@@ -24,12 +24,12 @@ FOREIGN_HEADERS = [
 
 # 국내계좌 컬럼별 숫자 포맷 (1-based index)
 DOMESTIC_FORMATS = [
-    {'col': 4, 'pattern': '#,##0'},              # D: 수량
-    {'col': 5, 'pattern': '₩#,##0'},             # E: 단가
-    {'col': 6, 'pattern': '₩#,##0'},             # F: 금액
-    {'col': 7, 'pattern': '₩#,##0'},             # G: 수수료
-    {'col': 8, 'pattern': '₩#,##0'},             # H: 손익금액
-    {'col': 9, 'pattern': '0.00%', 'type': 'PERCENT'},  # I: 수익률
+    {'col': 5, 'pattern': '#,##0'},              # E: 수량
+    {'col': 6, 'pattern': '₩#,##0'},             # F: 단가
+    {'col': 7, 'pattern': '₩#,##0'},             # G: 금액
+    {'col': 8, 'pattern': '₩#,##0'},             # H: 수수료
+    {'col': 9, 'pattern': '₩#,##0'},             # I: 손익금액
+    {'col': 10, 'pattern': '0.00%', 'type': 'PERCENT'},  # J: 수익률
 ]
 
 # 해외계좌 - 통화 무관 컬럼 포맷 (1-based index)
@@ -145,10 +145,11 @@ class SheetWriter:
                            _normalize_num(_get_cell_value(values[5])),
                            _normalize_num(_get_cell_value(values[6])))
                 else:
+                    # 국내(10컬럼): 종목명=2, 종목코드=3, 수량=4, 단가=5
                     stock_name = str(_get_cell_value(values[2]) or "")
                     key = (date_val, trade_type, stock_name,
-                           _normalize_num(_get_cell_value(values[3])),
-                           _normalize_num(_get_cell_value(values[4])))
+                           _normalize_num(_get_cell_value(values[4])),
+                           _normalize_num(_get_cell_value(values[5])))
                 keys.add(key)
 
             logger.info(f"시트 '{sheet_name}'에서 {len(keys)}개 기존 키 로드")
@@ -344,7 +345,7 @@ class SheetWriter:
 
             rows = data["sheets"][0]["data"][0].get("rowData", [])
             trades: List[Trade] = []
-            min_cols = 15 if is_foreign else 9
+            min_cols = 15 if is_foreign else 10
 
             for row in rows:
                 values = row.get("values", [])
@@ -473,25 +474,25 @@ def _row_to_trade(
                 account=sheet_name,
             )
         else:
-            # 국내: A~I (9컬럼)
-            amount = _get_num(values[5])
-            profit = _get_num(values[7])
+            # 국내: A~J (10컬럼) — 일자,구분,종목명,종목코드,수량,단가,금액,수수료,손익,수익률
+            amount = _get_num(values[6])
+            profit = _get_num(values[8])
             return Trade(
                 date=date_val,
                 trade_type=_get_str(values[1]),
                 stock_name=_get_str(values[2]),
-                stock_code="",
-                quantity=_get_num(values[3]),
-                price=_get_num(values[4]),
+                stock_code=_get_str(values[3]),
+                quantity=_get_num(values[4]),
+                price=_get_num(values[5]),
                 amount=amount,
                 currency="KRW",
                 exchange_rate=1.0,
                 amount_krw=amount,
-                fee=_get_num(values[6]),
+                fee=_get_num(values[7]),
                 tax=0.0,
                 profit=profit,
                 profit_krw=profit,
-                profit_rate=_get_num(values[8]) * 100,
+                profit_rate=_get_num(values[9]) * 100,
                 account=sheet_name,
             )
     except (IndexError, KeyError, TypeError) as e:

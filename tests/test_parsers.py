@@ -86,7 +86,14 @@ class TestMiraeDomesticParser:
             pytest.skip("샘플 파일 없음")
         trades = parser.parse(sample_file, "미래에셋증권_국내계좌")
         row = trades[0].to_domestic_row()
-        assert len(row) == 9
+        assert len(row) == 10
+        # 새 10컬럼 레이아웃: 일자(0), 구분(1), 종목명(2), 종목코드(3), 수량(4),
+        # 단가(5), 금액(6), 수수료(7), 손익금액(8), 수익률(9)
+        assert isinstance(row[0], str)   # 일자: YYYY-MM-DD
+        assert row[1] in ("매수", "매도")  # 구분
+        assert isinstance(row[2], str)   # 종목명
+        assert isinstance(row[3], str)   # 종목코드 (str, "" 허용)
+        assert isinstance(row[4], (int, float)) and row[4] > 0  # 수량
 
     def test_profit_rate_as_decimal(self, parser, sample_file):
         """수익률이 퍼센트 소수로 변환되는지 테스트 (14.68 → 0.1468)"""
