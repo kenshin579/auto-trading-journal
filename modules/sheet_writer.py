@@ -16,6 +16,12 @@ DOMESTIC_HEADERS = [
     "수수료", "손익금액", "수익률(%)",
 ]
 
+# 마이그레이션 감지용: 종목코드 컬럼 추가 이전(9컬럼) 헤더
+OLD_DOMESTIC_HEADERS_V1 = [
+    "일자", "구분", "종목명", "수량", "단가", "금액",
+    "수수료", "손익금액", "수익률(%)",
+]
+
 FOREIGN_HEADERS = [
     "일자", "구분", "통화", "종목코드", "종목명", "수량", "단가",
     "금액(외화)", "환율", "금액(원화)", "수수료", "세금",
@@ -310,6 +316,13 @@ class SheetWriter:
                 is_foreign = False
             elif header_row == FOREIGN_HEADERS:
                 is_foreign = True
+            elif header_row == OLD_DOMESTIC_HEADERS_V1:
+                logger.warning(
+                    f"시트 '{sheet_name}'는 옛 9컬럼 포맷입니다. 종목코드 컬럼 추가를 위해 "
+                    f"이 시트를 삭제 후 재실행하거나 D열에 '종목코드' 컬럼을 수동 삽입하세요. "
+                    f"(이번 실행에서는 스킵)"
+                )
+                continue
             else:
                 logger.debug(f"시트 '{sheet_name}' 스킵 (매매일지 헤더 불일치)")
                 continue

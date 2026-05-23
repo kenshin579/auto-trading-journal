@@ -4,6 +4,7 @@ Google Sheets API를 직접 호출하지 않고
 get_raw_grid_data() / get_sheet_data() 반환값을 모킹하여 테스트.
 """
 
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,6 +13,7 @@ from modules.google_sheets_client import GoogleSheetsClient
 from modules.sheet_writer import (
     DOMESTIC_HEADERS,
     FOREIGN_HEADERS,
+    OLD_DOMESTIC_HEADERS_V1,
     SheetWriter,
     _extract_header_row,
     _get_num,
@@ -323,6 +325,21 @@ class TestReadAllTrades:
 
         trades = await writer.read_all_trades()
         assert len(trades) == 3  # 국내 2건 + 해외 1건
+
+    async def test_read_all_trades_warns_on_old_domestic_header(
+        self, writer, mock_client, caplog
+    ):
+        """옛 9컬럼 국내 헤더 감지 시 WARNING 로그 출력 후 시트 스킵."""
+        mock_client.list_sheets.return_value = ["미래에셋증권_주식1"]
+        mock_client.get_sheet_data.return_value = _build_header_grid_data(
+            OLD_DOMESTIC_HEADERS_V1
+        )
+
+        with caplog.at_level(logging.WARNING, logger="modules.sheet_writer"):
+            trades = await writer.read_all_trades()
+
+        assert trades == []
+        assert "옛 9컬럼" in caplog.text or "종목코드" in caplog.text
 
     async def test_nfd_nfc_duplicate_skip(self, writer, mock_client):
         """NFD/NFC 유니코드 중복 시트는 하나만 읽음."""
