@@ -31,11 +31,11 @@ class Trade:
         return "해외" in self.account
 
     def to_domestic_row(self) -> list:
-        """국내계좌 시트 행 변환 (9컬럼)
+        """국내계좌 시트 행 변환 (10컬럼)
         수익률은 퍼센트 소수로 변환 (14.68 → 0.1468)
         """
         return [
-            self.date, self.trade_type, self.stock_name,
+            self.date, self.trade_type, self.stock_name, self.stock_code,
             self.quantity, self.price, self.amount,
             self.fee, self.profit,
             self.profit_rate / 100 if self.profit_rate else 0,

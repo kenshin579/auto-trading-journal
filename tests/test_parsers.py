@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from modules.models import Trade
 from modules.parser_registry import detect_parser
 from modules.parsers.mirae_parser import MiraeDomesticParser, MiraeForeignParser
 from modules.parsers.hankook_parser import HankookDomesticParser
@@ -86,7 +87,14 @@ class TestMiraeDomesticParser:
             pytest.skip("샘플 파일 없음")
         trades = parser.parse(sample_file, "미래에셋증권_국내계좌")
         row = trades[0].to_domestic_row()
-        assert len(row) == 9
+        assert len(row) == 10
+        # 새 10컬럼 레이아웃: 일자(0), 구분(1), 종목명(2), 종목코드(3), 수량(4),
+        # 단가(5), 금액(6), 수수료(7), 손익금액(8), 수익률(9)
+        assert isinstance(row[0], str)   # 일자: YYYY-MM-DD
+        assert row[1] in ("매수", "매도")  # 구분
+        assert isinstance(row[2], str)   # 종목명
+        assert isinstance(row[3], str)   # 종목코드 (str, "" 허용)
+        assert isinstance(row[4], (int, float)) and row[4] > 0  # 수량
 
     def test_profit_rate_as_decimal(self, parser, sample_file):
         """수익률이 퍼센트 소수로 변환되는지 테스트 (14.68 → 0.1468)"""
@@ -304,6 +312,26 @@ class TestHankookDomesticParser:
         )
         with pytest.raises(ValueError, match="날짜가 비어있습니다"):
             parser.parse(csv_file, "테스트")
+
+
+def _domestic_trade(**kw):
+    base = dict(
+        date="2026-02-13", trade_type="매수", stock_name="TIGER 조선TOP10",
+        stock_code="494670", quantity=2, price=28230, amount=56460,
+        currency="KRW", exchange_rate=1.0, amount_krw=56460, fee=0.0, tax=0.0,
+        profit=0.0, profit_krw=0.0, profit_rate=0.0, account="미래에셋증권_국내계좌",
+    )
+    base.update(kw)
+    return Trade(**base)
+
+
+def test_to_domestic_row_includes_stock_code():
+    row = _domestic_trade().to_domestic_row()
+    assert len(row) == 10
+    # 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률
+    assert row[2] == "TIGER 조선TOP10"
+    assert row[3] == "494670"
+    assert row[4] == 2
 
 
 class TestParserRegistry:

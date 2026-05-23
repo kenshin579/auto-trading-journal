@@ -57,6 +57,7 @@ StockDataProcessor (main.py)
 │   └── HankookDomesticParser - 한국투자증권 국내
 ├── SheetWriter     - 시트 생성/중복필터/데이터삽입/색상적용
 ├── SummaryGenerator - 요약_월별, 요약_종목별 시트 생성
+├── SymbolResolver  - KRX 종목 마스터 종목명→종목코드 조회
 └── GoogleSheetsClient - Google Sheets API v4 래퍼
 ```
 
@@ -65,16 +66,17 @@ StockDataProcessor (main.py)
 1. **CSV 스캔**: `input/{증권사명}/` 하위 CSV 파일 탐색 (`sample/` 제외)
 2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
 3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
-4. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
-5. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
-6. **데이터 삽입**: 신규 거래 일괄 삽입 + 날짜별 색상 적용
-7. **요약 갱신**: 월별/종목별 요약 시트 초기화 후 재작성
+4. **종목코드 보강**: 국내 거래 중 종목코드가 빈 항목을 KRX 마스터에서 조회해 채움
+5. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
+6. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
+7. **데이터 삽입**: 신규 거래 일괄 삽입 + 날짜별 색상 적용
+8. **요약 갱신**: 월별/종목별 요약 시트 초기화 후 재작성
 
 ### Key Data Model
 
 **Trade** (dataclass):
 - 16개 필드: date, trade_type, stock_name, stock_code, quantity, price, amount, currency, exchange_rate, amount_krw, fee, tax, profit, profit_krw, profit_rate, account
-- `to_domestic_row()`: 국내 9컬럼 행 반환
+- `to_domestic_row()`: 국내 10컬럼 행 반환 (일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
 - `to_foreign_row()`: 해외 15컬럼 행 반환
 - `duplicate_key()`: (date, trade_type, stock_name, quantity, price) 튜플
 
@@ -97,6 +99,11 @@ StockDataProcessor (main.py)
 
 **modules/parser_registry.py**:
 - detect_parser(): CSV 첫 행 읽어 파서 자동 선택
+
+**modules/symbol_master.py**:
+- KRX 공개 종목 마스터(`kospi/kosdaq_code.mst.zip`) 다운로드/캐시/cp949 파싱
+- SymbolResolver.resolve(): 종목명 → 단축코드(티커) 조회 (lazy 로드, `~/.cache/auto-trading-journal` 7일 캐시)
+- 국내 CSV에 종목코드가 없는 경우(미래에셋 국내) 보강에 사용. 무인증·오프라인(캐시 후)
 
 **modules/sheet_writer.py**:
 - ensure_sheet_exists(): 시트 자동 생성 + 헤더 삽입
@@ -147,6 +154,17 @@ logging:
 ```
 
 시트 이름 = `{증권사 폴더명}_{CSV 파일명(확장자 제외)}`
+
+### 국내 시트 컬럼 (종목코드 추가)
+
+국내계좌 시트는 종목명 뒤에 `종목코드` 컬럼을 포함한 **10컬럼** 구조입니다
+(일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률(%)).
+종목코드는 미래에셋 국내처럼 CSV에 코드가 없는 경우 KRX 공개 종목 마스터
+(`modules/symbol_master.py`)에서 종목명으로 조회해 채웁니다.
+
+**기존 9컬럼 시트 마이그레이션**: 종목코드 컬럼 도입 이전에 생성된 국내 시트는
+삭제 후 재실행하거나 D열에 `종목코드` 컬럼을 수동 삽입해야 합니다. 옛 포맷(9컬럼)
+시트는 실행 시 경고 로그와 함께 스킵됩니다.
 
 ## Input File Format
 
