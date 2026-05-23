@@ -14,15 +14,14 @@ KOSPI_FWF_LEN = 227
 KOSDAQ_FWF_LEN = 221
 
 
-def _parse_mst_lines(text: str, fwf_len: int) -> dict:
+def _parse_mst_lines(text: str, fwf_len: int) -> dict[str, str]:
     """디코드된 mst 텍스트에서 {한글명: 단축코드} dict 추출.
 
     한 행: [0:9]=단축코드, [9:21]=표준코드(ISIN), [21:len-fwf_len]=한글명.
     동일 종목명이 여러 번 나오면 첫 항목 우선.
     """
-    out: dict = {}
-    for line in text.split("\n"):
-        line = line.rstrip("\r")
+    out: dict[str, str] = {}
+    for line in text.splitlines():
         if len(line) < fwf_len + 21:
             continue
         code = line[0:9].strip()
