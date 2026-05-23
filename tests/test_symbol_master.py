@@ -140,3 +140,30 @@ class TestSymbolResolver:
         resolver.resolve("삼성전자")
         resolver.resolve("삼성전자")
         assert calls["n"] == 1
+
+    def test_resolve_returns_empty_when_load_fails(self, monkeypatch, caplog):
+        def _boom():
+            raise OSError("network down")
+
+        monkeypatch.setattr("modules.symbol_master._load_all", _boom)
+        resolver = SymbolResolver()
+        with caplog.at_level(logging.WARNING, logger="modules.symbol_master"):
+            assert resolver.resolve("아무종목") == ""
+        assert "로드 실패" in caplog.text
+
+    def test_resolve_warns_once_for_repeated_unknown(self, caplog):
+        resolver = SymbolResolver(name_to_code={})
+        with caplog.at_level(logging.WARNING, logger="modules.symbol_master"):
+            resolver.resolve("없는종목")
+            resolver.resolve("없는종목")
+        assert caplog.text.count("종목코드 미발견") == 1
+
+
+def test_fetch_zip_falls_back_to_stale_cache_on_bad_zip(tmp_path, monkeypatch):
+    cache_file = tmp_path / "kospi_code.mst.zip"
+    cache_file.write_bytes(b"stale-cache-bytes")
+    old = time.time() - 100 * 24 * 3600
+    os.utime(cache_file, (old, old))
+    monkeypatch.setattr("modules.symbol_master._cache_dir", lambda: tmp_path)
+    monkeypatch.setattr("modules.symbol_master._download", lambda url: b"not-a-zip")
+    assert _fetch_zip("http://x", "kospi_code.mst.zip") == b"stale-cache-bytes"

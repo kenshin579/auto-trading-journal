@@ -51,7 +51,7 @@ def _fetch_zip(url: str, cache_name: str) -> bytes:
         return data
     except Exception as e:
         if path.exists():
-            logger.warning(f"KRX 마스터 다운로드 실패, 만료 캐시 사용 ({cache_name}): {e}")
+            logger.warning(f"KRX 마스터 사용 불가, 만료 캐시 사용 ({cache_name}): {e}")
             return path.read_bytes()
         raise
 
@@ -103,15 +103,21 @@ class SymbolResolver:
 
     def __init__(self, name_to_code: dict[str, str] | None = None):
         self._map: dict[str, str] | None = name_to_code
+        self._warned: set[str] = set()
 
     def _ensure_loaded(self) -> None:
         if self._map is None:
-            self._map = _load_all()
+            try:
+                self._map = _load_all()
+            except Exception as e:
+                logger.warning(f"KRX 종목 마스터 로드 실패, 종목코드 보강을 건너뜁니다: {e}")
+                self._map = {}
 
     def resolve(self, stock_name: str) -> str:
         self._ensure_loaded()
         stripped = stock_name.strip()
         code = self._map.get(stripped, "")
-        if not code:
+        if not code and stripped not in self._warned:
             logger.warning(f"종목코드 미발견 (KRX 마스터): {stripped!r}")
+            self._warned.add(stripped)
         return code
