@@ -1,6 +1,7 @@
 """KRX 종목 마스터 파서/리졸버 테스트"""
 
 import io
+import logging
 import os
 import time
 import zipfile
@@ -123,7 +124,9 @@ class TestSymbolResolver:
 
     def test_resolve_returns_empty_for_unknown(self, caplog):
         resolver = SymbolResolver(name_to_code={})
-        assert resolver.resolve("없는종목") == ""
+        with caplog.at_level(logging.WARNING, logger="modules.symbol_master"):
+            assert resolver.resolve("없는종목") == ""
+        assert "없는종목" in caplog.text
 
     def test_resolve_lazy_loads_only_once(self, monkeypatch):
         calls = {"n": 0}

@@ -83,9 +83,9 @@ def _parse_mst_lines(text: str, fwf_len: int) -> dict[str, str]:
     return out
 
 
-def _load_all() -> dict:
+def _load_all() -> dict[str, str]:
     """KOSPI + KOSDAQ 마스터를 모두 로드해 {한글명: 단축코드} 통합 dict 반환."""
-    merged: dict = {}
+    merged: dict[str, str] = {}
     sources = [
         (KOSPI_URL, "kospi_code.mst.zip", KOSPI_FWF_LEN),
         (KOSDAQ_URL, "kosdaq_code.mst.zip", KOSDAQ_FWF_LEN),
@@ -101,16 +101,17 @@ def _load_all() -> dict:
 class SymbolResolver:
     """종목명 → 단축코드(티커) 리졸버. 최초 호출 시 마스터를 1회 로드."""
 
-    def __init__(self, name_to_code: dict = None):
-        self._map = name_to_code
+    def __init__(self, name_to_code: dict[str, str] | None = None):
+        self._map: dict[str, str] | None = name_to_code
 
-    def _ensure_loaded(self):
+    def _ensure_loaded(self) -> None:
         if self._map is None:
             self._map = _load_all()
 
     def resolve(self, stock_name: str) -> str:
         self._ensure_loaded()
-        code = self._map.get(stock_name.strip(), "")
+        stripped = stock_name.strip()
+        code = self._map.get(stripped, "")
         if not code:
-            logger.warning(f"종목코드 미발견 (KRX 마스터): {stock_name}")
+            logger.warning(f"종목코드 미발견 (KRX 마스터): {stripped!r}")
         return code
