@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from modules.models import Trade
 from modules.parser_registry import detect_parser
 from modules.parsers.mirae_parser import MiraeDomesticParser, MiraeForeignParser
 from modules.parsers.hankook_parser import HankookDomesticParser
@@ -311,9 +312,6 @@ class TestHankookDomesticParser:
         )
         with pytest.raises(ValueError, match="날짜가 비어있습니다"):
             parser.parse(csv_file, "테스트")
-
-
-from modules.models import Trade
 
 
 def _domestic_trade(**kw):

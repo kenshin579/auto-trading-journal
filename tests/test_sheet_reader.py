@@ -354,3 +354,24 @@ def test_row_to_trade_domestic_reads_stock_code():
     assert trade.stock_code == "494670"
     assert trade.quantity == 2
     assert trade.price == 28230
+
+
+@pytest.mark.asyncio
+async def test_get_existing_keys_domestic(writer, mock_client):
+    """get_existing_keys()가 국내 행에서 올바른 5-tuple 키를 반환하는지 검증.
+
+    국내 10컬럼 레이아웃: 일자(0), 구분(1), 종목명(2), 종목코드(3), 수량(4), 단가(5), ...
+    키: (date, trade_type, stock_name, _normalize_num(qty), _normalize_num(price))
+    숫자 셀은 numberValue로 저장되므로 _normalize_num(2.0) → "2", _normalize_num(28230.0) → "28230"
+    """
+    # 국내 10컬럼 행 2개: 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률
+    row1 = ["2026-02-13", "매수", "TIGER 조선TOP10", "494670", 2, 28230, 56460, 0, 0, 0.0]
+    row2 = ["2026-02-14", "매도", "KODEX 미국배당다우존스", "229200", 9, 12452, 112068, 2794, 16128, 0.1681]
+    grid_data = _build_grid_data([row1, row2])
+    mock_client.get_raw_grid_data.return_value = grid_data
+
+    keys = await writer.get_existing_keys("테스트_시트", is_foreign=False)
+
+    assert len(keys) == 2
+    assert ("2026-02-13", "매수", "TIGER 조선TOP10", "2", "28230") in keys
+    assert ("2026-02-14", "매도", "KODEX 미국배당다우존스", "9", "12452") in keys

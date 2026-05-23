@@ -122,7 +122,7 @@ class SheetWriter:
             keys = set()
             for row in rows:
                 values = row.get("values", [])
-                if len(values) < 5:
+                if len(values) < 6:
                     continue
 
                 # 날짜(col 0): formattedValue 사용 (시리얼 넘버 → "YYYY-MM-DD")
@@ -136,7 +136,7 @@ class SheetWriter:
                     ev = cell.get("effectiveValue", {})
                     return ev.get("stringValue") or ev.get("numberValue")
 
-                # 국내: (일자, 구분, 종목명, 수량, 단가) = cols 0,1,2,3,4
+                # 국내: (일자, 구분, 종목명, 수량, 단가) = cols 0,1,2,4,5
                 # 해외: (일자, 구분, 종목명, 수량, 단가) = cols 0,1,4,5,6
                 trade_type = str(_get_cell_value(values[1]) or "")
                 if is_foreign and len(values) >= 7:
