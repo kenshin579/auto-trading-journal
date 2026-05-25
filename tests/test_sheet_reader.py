@@ -69,8 +69,8 @@ def writer(mock_client):
 DOMESTIC_ROW = [
     "2026-02-13",  # A: 일자
     "매수",         # B: 구분
-    "TIGER 조선TOP10",  # C: 종목명
-    "494670",       # D: 종목코드
+    "494670",       # C: 종목코드
+    "TIGER 조선TOP10",  # D: 종목명
     2.0,            # E: 수량
     28230.0,        # F: 단가
     56460.0,        # G: 금액
@@ -82,8 +82,8 @@ DOMESTIC_ROW = [
 DOMESTIC_SELL_ROW = [
     "2026-02-13",
     "매도",
-    "KODEX 미국배당다우존스",
     "229200",       # 종목코드
+    "KODEX 미국배당다우존스",  # 종목명
     9.0,
     12452.0,
     112068.0,
@@ -358,10 +358,10 @@ class TestReadAllTrades:
 
 
 def test_row_to_trade_domestic_reads_stock_code():
-    # 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익, 수익률
+    # 일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익, 수익률
     values = [
-        _cell("2026-02-13"), _cell("매수"), _cell("TIGER 조선TOP10"),
-        _cell("494670"), _cell(2), _cell(28230), _cell(56460),
+        _cell("2026-02-13"), _cell("매수"), _cell("494670"),
+        _cell("TIGER 조선TOP10"), _cell(2), _cell(28230), _cell(56460),
         _cell(0), _cell(0), _cell(0.0),
     ]
     trade = _row_to_trade(values, "미래에셋증권_국내계좌", is_foreign=False,
@@ -377,13 +377,13 @@ def test_row_to_trade_domestic_reads_stock_code():
 async def test_get_existing_keys_domestic(writer, mock_client):
     """get_existing_keys()가 국내 행에서 올바른 5-tuple 키를 반환하는지 검증.
 
-    국내 10컬럼 레이아웃: 일자(0), 구분(1), 종목명(2), 종목코드(3), 수량(4), 단가(5), ...
+    국내 10컬럼 레이아웃: 일자(0), 구분(1), 종목코드(2), 종목명(3), 수량(4), 단가(5), ...
     키: (date, trade_type, stock_name, _normalize_num(qty), _normalize_num(price))
     숫자 셀은 numberValue로 저장되므로 _normalize_num(2.0) → "2", _normalize_num(28230.0) → "28230"
     """
-    # 국내 10컬럼 행 2개: 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률
-    row1 = ["2026-02-13", "매수", "TIGER 조선TOP10", "494670", 2, 28230, 56460, 0, 0, 0.0]
-    row2 = ["2026-02-14", "매도", "KODEX 미국배당다우존스", "229200", 9, 12452, 112068, 2794, 16128, 0.1681]
+    # 국내 10컬럼 행 2개: 일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률
+    row1 = ["2026-02-13", "매수", "494670", "TIGER 조선TOP10", 2, 28230, 56460, 0, 0, 0.0]
+    row2 = ["2026-02-14", "매도", "229200", "KODEX 미국배당다우존스", 9, 12452, 112068, 2794, 16128, 0.1681]
     grid_data = _build_grid_data([row1, row2])
     mock_client.get_raw_grid_data.return_value = grid_data
 

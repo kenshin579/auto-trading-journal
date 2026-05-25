@@ -88,12 +88,12 @@ class TestMiraeDomesticParser:
         trades = parser.parse(sample_file, "미래에셋증권_국내계좌")
         row = trades[0].to_domestic_row()
         assert len(row) == 10
-        # 새 10컬럼 레이아웃: 일자(0), 구분(1), 종목명(2), 종목코드(3), 수량(4),
+        # 새 10컬럼 레이아웃: 일자(0), 구분(1), 종목코드(2), 종목명(3), 수량(4),
         # 단가(5), 금액(6), 수수료(7), 손익금액(8), 수익률(9)
         assert isinstance(row[0], str)   # 일자: YYYY-MM-DD
         assert row[1] in ("매수", "매도")  # 구분
-        assert isinstance(row[2], str)   # 종목명
-        assert isinstance(row[3], str)   # 종목코드 (str, "" 허용)
+        assert isinstance(row[2], str)   # 종목코드 (str, "" 허용)
+        assert isinstance(row[3], str)   # 종목명
         assert isinstance(row[4], (int, float)) and row[4] > 0  # 수량
 
     def test_profit_rate_as_decimal(self, parser, sample_file):
@@ -328,9 +328,9 @@ def _domestic_trade(**kw):
 def test_to_domestic_row_includes_stock_code():
     row = _domestic_trade().to_domestic_row()
     assert len(row) == 10
-    # 일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률
-    assert row[2] == "TIGER 조선TOP10"
-    assert row[3] == "494670"
+    # 일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률
+    assert row[2] == "494670"
+    assert row[3] == "TIGER 조선TOP10"
     assert row[4] == 2
 
 

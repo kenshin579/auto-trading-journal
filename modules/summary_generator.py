@@ -210,7 +210,7 @@ class SummaryGenerator:
     async def _write_stock_summary(self, trades: List[Trade], start_row: int) -> int:
         """섹션 3: 종목별 현황"""
         headers = [
-            "종목명", "종목코드", "계좌", "통화",
+            "종목코드", "종목명", "계좌", "통화",
             "총매수수량", "총매수금액(원)", "총매도수량", "총매도금액(원)",
             "실현손익(원)", "수익률(%)", "투자비중(%)",
         ]
@@ -239,7 +239,7 @@ class SummaryGenerator:
             profit_rate = g["profit"] / g["sell_amount"] if g["sell_amount"] else 0
             weight = g["buy_amount"] / total_buy_amount if total_buy_amount else 0
             rows.append([
-                name, code, account, currency,
+                code, name, account, currency,
                 g["buy_qty"], g["buy_amount"],
                 g["sell_qty"], g["sell_amount"],
                 g["profit"], profit_rate, weight,
