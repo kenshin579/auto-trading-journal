@@ -103,13 +103,17 @@ class SheetWriter:
 
     async def apply_sheet_formatting(self, sheet_name: str, is_foreign: bool = False):
         """시트에 freeze + filter + 배경색 초기화 적용 (1회 batchUpdate)"""
-        num_cols = len(FOREIGN_HEADERS) if is_foreign else len(DOMESTIC_HEADERS)
+        headers = FOREIGN_HEADERS if is_foreign else DOMESTIC_HEADERS
+        num_cols = len(headers)
+        # 종목코드는 숫자로 보여도 텍스트(정렬 통일·앞0 보존)로 다룬다
+        code_col = headers.index("종목코드") + 1
         await self.client.apply_sheet_formatting_batch(
             sheet_name,
             freeze_row_count=1,
             filter_start_row=1,
             filter_start_col=1,
             filter_end_col=num_cols,
+            text_format_col=code_col,
         )
 
     async def get_existing_keys(self, sheet_name: str, is_foreign: bool = False) -> Set[tuple]:

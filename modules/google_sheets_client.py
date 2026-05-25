@@ -869,6 +869,43 @@ class GoogleSheetsClient:
         return requests
 
     @staticmethod
+    def build_text_format_requests(
+        sheet_id: int,
+        col: Optional[int],
+        start_row: int, end_row: int,
+    ) -> List[Dict[str, Any]]:
+        """지정 컬럼을 TEXT(@) 포맷으로 설정하는 repeatCell 요청 생성 (API 호출 없음)
+
+        종목코드처럼 숫자로 보이지만 텍스트로 다뤄야 하는 컬럼에 사용. TEXT 셀에
+        USER_ENTERED로 값을 쓰면 숫자 자동 변환(우측정렬·앞0 손실)이 일어나지 않는다.
+
+        Args:
+            sheet_id: 시트 ID
+            col: TEXT로 만들 컬럼 (1-based). None이면 빈 리스트 반환.
+            start_row: 시작 행 (1-based)
+            end_row: 종료 행 (1-based, inclusive)
+        """
+        if col is None:
+            return []
+        return [{
+            'repeatCell': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': start_row - 1,
+                    'endRowIndex': end_row,
+                    'startColumnIndex': col - 1,
+                    'endColumnIndex': col,
+                },
+                'cell': {
+                    'userEnteredFormat': {
+                        'numberFormat': {'type': 'TEXT', 'pattern': '@'}
+                    }
+                },
+                'fields': 'userEnteredFormat.numberFormat',
+            }
+        }]
+
+    @staticmethod
     def build_color_requests(
         sheet_id: int,
         color_ranges: List[Dict[str, Any]],
@@ -937,6 +974,7 @@ class GoogleSheetsClient:
         filter_end_col: int = 9,
         clear_bg_end_row: int = 1000,
         clear_bg_end_col: int = 26,
+        text_format_col: Optional[int] = None,
     ) -> bool:
         """시트 포맷팅(행고정 + 필터 + 배경색초기화)을 1회 batchUpdate로 적용
 
@@ -948,6 +986,7 @@ class GoogleSheetsClient:
             filter_end_col: 필터 종료 열 (1-based, inclusive)
             clear_bg_end_row: 배경색 초기화 마지막 행
             clear_bg_end_col: 배경색 초기화 마지막 열
+            text_format_col: TEXT 포맷으로 만들 컬럼 (1-based, 예: 종목코드). None이면 미적용.
         """
         try:
             sheet_id = await self.get_sheet_id(sheet_name)
@@ -992,6 +1031,13 @@ class GoogleSheetsClient:
                     }
                 },
             ]
+
+            # 종목코드 등 텍스트로 다뤄야 하는 컬럼을 TEXT 포맷으로 (헤더 제외, 2행~)
+            requests.extend(
+                self.build_text_format_requests(
+                    sheet_id, text_format_col, 2, clear_bg_end_row
+                )
+            )
 
             await self._execute_with_retry(
                 lambda: self.service.spreadsheets().batchUpdate(

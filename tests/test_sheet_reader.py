@@ -357,6 +357,22 @@ class TestReadAllTrades:
         assert mock_client.get_raw_grid_data.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_apply_sheet_formatting_marks_domestic_code_column_as_text(writer, mock_client):
+    """국내 시트: 종목코드 컬럼(C=3)을 TEXT 포맷으로 지정하도록 전달"""
+    await writer.apply_sheet_formatting("미래에셋증권_주식2", is_foreign=False)
+    _, kwargs = mock_client.apply_sheet_formatting_batch.call_args
+    assert kwargs["text_format_col"] == DOMESTIC_HEADERS.index("종목코드") + 1  # 3
+
+
+@pytest.mark.asyncio
+async def test_apply_sheet_formatting_marks_foreign_code_column_as_text(writer, mock_client):
+    """해외 시트: 종목코드 컬럼(D=4)을 TEXT 포맷으로 지정하도록 전달"""
+    await writer.apply_sheet_formatting("미래에셋증권_해외계좌", is_foreign=True)
+    _, kwargs = mock_client.apply_sheet_formatting_batch.call_args
+    assert kwargs["text_format_col"] == FOREIGN_HEADERS.index("종목코드") + 1  # 4
+
+
 def test_row_to_trade_domestic_reads_stock_code():
     # 일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익, 수익률
     values = [

@@ -249,6 +249,12 @@ class SummaryGenerator:
         if rows:
             all_rows = [headers] + rows
             end_row = start_row + len(rows)
+            # 종목코드 컬럼(A)을 쓰기 전에 TEXT로 → USER_ENTERED 숫자 변환 방지(정렬·앞0 보존)
+            await self.client.apply_number_format_to_columns(
+                DASHBOARD_SHEET,
+                [{'col': 1, 'pattern': '@', 'type': 'TEXT'}],
+                start_row, end_row,
+            )
             await self.client.batch_update_cells(
                 DASHBOARD_SHEET, {f"A{start_row}:K{end_row}": all_rows}
             )
