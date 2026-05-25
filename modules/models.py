@@ -24,11 +24,13 @@ class Trade:
     profit_rate: float  # 수익률(%)
     account: str  # 증권사_계좌유형 (예: "미래에셋증권_국내계좌")
 
-    def is_domestic(self) -> bool:
-        return "국내" in self.account
-
     def is_foreign(self) -> bool:
         return "해외" in self.account
+
+    def is_domestic(self) -> bool:
+        # 행 포맷 선택(to_sheet_row)과 동일하게 "해외가 아니면 국내"로 판정.
+        # 계좌명에 "국내" 리터럴이 없어도(예: "미래에셋증권_주식2") 보강 대상에 포함된다.
+        return not self.is_foreign()
 
     def to_domestic_row(self) -> list:
         """국내계좌 시트 행 변환 (10컬럼)

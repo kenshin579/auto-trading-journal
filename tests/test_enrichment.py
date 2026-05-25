@@ -33,3 +33,11 @@ def test_skips_foreign_trades():
     trades = [_trade("애플", "", account="미래에셋증권_해외계좌")]
     enrich_domestic_codes(trades, resolver)
     assert trades[0].stock_code == ""  # 해외는 건드리지 않음
+
+
+def test_fills_code_when_account_has_no_domestic_keyword():
+    # 계좌명이 "국내"를 포함하지 않아도(예: "주식2") 해외가 아니면 국내로 간주해 보강한다
+    resolver = SymbolResolver(name_to_code={"KODEX 미국AI전력핵심인프라": "487230"})
+    trades = [_trade("KODEX 미국AI전력핵심인프라", "", account="미래에셋증권_주식2")]
+    enrich_domestic_codes(trades, resolver)
+    assert trades[0].stock_code == "487230"
