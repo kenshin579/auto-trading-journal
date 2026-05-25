@@ -76,7 +76,7 @@ StockDataProcessor (main.py)
 
 **Trade** (dataclass):
 - 16개 필드: date, trade_type, stock_name, stock_code, quantity, price, amount, currency, exchange_rate, amount_krw, fee, tax, profit, profit_krw, profit_rate, account
-- `to_domestic_row()`: 국내 10컬럼 행 반환 (일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
+- `to_domestic_row()`: 국내 10컬럼 행 반환 (일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
 - `to_foreign_row()`: 해외 15컬럼 행 반환
 - `duplicate_key()`: (date, trade_type, stock_name, quantity, price) 튜플
 
@@ -157,8 +157,8 @@ logging:
 
 ### 국내 시트 컬럼 (종목코드 추가)
 
-국내계좌 시트는 종목명 뒤에 `종목코드` 컬럼을 포함한 **10컬럼** 구조입니다
-(일자, 구분, 종목명, 종목코드, 수량, 단가, 금액, 수수료, 손익금액, 수익률(%)).
+국내계좌 시트는 종목명 앞에 `종목코드` 컬럼을 포함한 **10컬럼** 구조입니다
+(일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률(%)).
 종목코드는 미래에셋 국내처럼 CSV에 코드가 없는 경우 KRX 공개 종목 마스터
 (`modules/symbol_master.py`)에서 종목명으로 조회해 채웁니다.
 

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # 시트 헤더 상수
 DOMESTIC_HEADERS = [
-    "일자", "구분", "종목명", "종목코드", "수량", "단가", "금액",
+    "일자", "구분", "종목코드", "종목명", "수량", "단가", "금액",
     "수수료", "손익금액", "수익률(%)",
 ]
 
@@ -142,7 +142,7 @@ class SheetWriter:
                     ev = cell.get("effectiveValue", {})
                     return ev.get("stringValue") or ev.get("numberValue")
 
-                # 국내: (일자, 구분, 종목명, 수량, 단가) = cols 0,1,2,4,5
+                # 국내: (일자, 구분, 종목명, 수량, 단가) = cols 0,1,3,4,5
                 # 해외: (일자, 구분, 종목명, 수량, 단가) = cols 0,1,4,5,6
                 trade_type = str(_get_cell_value(values[1]) or "")
                 if is_foreign and len(values) >= 7:
@@ -151,8 +151,8 @@ class SheetWriter:
                            _normalize_num(_get_cell_value(values[5])),
                            _normalize_num(_get_cell_value(values[6])))
                 else:
-                    # 국내(10컬럼): 종목명=2, 종목코드=3, 수량=4, 단가=5
-                    stock_name = str(_get_cell_value(values[2]) or "")
+                    # 국내(10컬럼): 종목코드=2, 종목명=3, 수량=4, 단가=5
+                    stock_name = str(_get_cell_value(values[3]) or "")
                     key = (date_val, trade_type, stock_name,
                            _normalize_num(_get_cell_value(values[4])),
                            _normalize_num(_get_cell_value(values[5])))
@@ -487,14 +487,14 @@ def _row_to_trade(
                 account=sheet_name,
             )
         else:
-            # 국내: A~J (10컬럼) — 일자,구분,종목명,종목코드,수량,단가,금액,수수료,손익,수익률
+            # 국내: A~J (10컬럼) — 일자,구분,종목코드,종목명,수량,단가,금액,수수료,손익,수익률
             amount = _get_num(values[6])
             profit = _get_num(values[8])
             return Trade(
                 date=date_val,
                 trade_type=_get_str(values[1]),
-                stock_name=_get_str(values[2]),
-                stock_code=_get_str(values[3]),
+                stock_code=_get_str(values[2]),
+                stock_name=_get_str(values[3]),
                 quantity=_get_num(values[4]),
                 price=_get_num(values[5]),
                 amount=amount,

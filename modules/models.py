@@ -37,7 +37,7 @@ class Trade:
         수익률은 퍼센트 소수로 변환 (14.68 → 0.1468)
         """
         return [
-            self.date, self.trade_type, self.stock_name, self.stock_code,
+            self.date, self.trade_type, self.stock_code, self.stock_name,
             self.quantity, self.price, self.amount,
             self.fee, self.profit,
             self.profit_rate / 100 if self.profit_rate else 0,
