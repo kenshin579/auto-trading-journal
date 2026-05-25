@@ -16,6 +16,7 @@ from modules.sheet_writer import (
     OLD_DOMESTIC_HEADERS_V1,
     SheetWriter,
     _extract_header_row,
+    _get_code,
     _get_num,
     _get_str,
     _row_to_trade,
@@ -387,6 +388,32 @@ def test_row_to_trade_domestic_reads_stock_code():
     assert trade.stock_code == "494670"
     assert trade.quantity == 2
     assert trade.price == 28230
+
+
+def test_get_code_handles_string_number_and_empty():
+    # 문자열 코드 (TEXT 셀)
+    assert _get_code({"effectiveValue": {"stringValue": "0113D0"}}) == "0113D0"
+    # 숫자 코드 (TEXT 포맷 이전) → 정수 문자열
+    assert _get_code({"effectiveValue": {"numberValue": 461270}}) == "461270"
+    assert _get_code({"effectiveValue": {"numberValue": 461270.0}}) == "461270"
+    # 빈 셀
+    assert _get_code({}) == ""
+    assert _get_code({"effectiveValue": {}}) == ""
+
+
+def test_row_to_trade_domestic_reads_numeric_stock_code():
+    # TEXT 포맷 도입 이전 행: 종목코드가 숫자(numberValue)로 저장됨.
+    # 시트에는 461270으로 표시되지만 stringValue가 없으므로 읽을 때 누락되면 안 된다.
+    code_cell = {"effectiveValue": {"numberValue": 461270}, "formattedValue": "461270"}
+    values = [
+        _cell("2026-02-13"), _cell("매수"), code_cell,
+        _cell("ACE 26-06 회사채(AA-이상)액티브"), _cell(2), _cell(28230), _cell(56460),
+        _cell(0), _cell(0), _cell(0.0),
+    ]
+    trade = _row_to_trade(values, "미래에셋증권_ISA", is_foreign=False,
+                          date_val="2026-02-13")
+    assert trade is not None
+    assert trade.stock_code == "461270"
 
 
 @pytest.mark.asyncio

@@ -441,6 +441,23 @@ def _get_str(cell: Dict, default: str = "") -> str:
     return str(v) if v is not None else default
 
 
+def _get_code(cell: Dict) -> str:
+    """종목코드 추출: 문자열 우선, 숫자로 저장된 경우(TEXT 포맷 이전 행)도 보강.
+
+    종목코드 컬럼을 TEXT로 통일하기 전에 적재된 행은 숫자형 코드(예: 461270)가
+    numberValue로 저장돼 있다. stringValue만 읽으면 누락되므로 numberValue도 처리한다.
+    (앞 0이 있던 코드는 숫자 저장 시점에 이미 0이 잘렸으므로 복구 불가)
+    """
+    ev = cell.get("effectiveValue", {})
+    s = ev.get("stringValue")
+    if s is not None:
+        return str(s)
+    n = ev.get("numberValue")
+    if n is not None:
+        return str(int(n)) if n == int(n) else str(n)
+    return ""
+
+
 def _extract_header_row(data: Dict) -> List[str]:
     """get_sheet_data() 결과에서 1행 헤더를 문자열 리스트로 추출."""
     if not data or "sheets" not in data:
@@ -476,7 +493,7 @@ def _row_to_trade(
                 date=date_val,
                 trade_type=_get_str(values[1]),
                 stock_name=_get_str(values[4]),
-                stock_code=_get_str(values[3]),
+                stock_code=_get_code(values[3]),
                 quantity=_get_num(values[5]),
                 price=_get_num(values[6]),
                 amount=_get_num(values[7]),
@@ -497,7 +514,7 @@ def _row_to_trade(
             return Trade(
                 date=date_val,
                 trade_type=_get_str(values[1]),
-                stock_code=_get_str(values[2]),
+                stock_code=_get_code(values[2]),
                 stock_name=_get_str(values[3]),
                 quantity=_get_num(values[4]),
                 price=_get_num(values[5]),
