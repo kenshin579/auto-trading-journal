@@ -34,6 +34,28 @@ def _make_sell_trade(date: str, stock_name: str, amount_krw: float,
     )
 
 
+class TestStockSummaryCodeTextFormat:
+    """종목별 현황: 종목코드 컬럼(A)을 쓰기 전에 TEXT 포맷으로 지정"""
+
+    @pytest.mark.asyncio
+    async def test_code_column_formatted_as_text(self):
+        trades = [_make_buy_trade("2025-01-02", "삼성전자", 1000000)]
+        mock_client = AsyncMock()
+        mock_client.batch_update_cells = AsyncMock(return_value=True)
+        mock_writer = MagicMock()
+        gen = SummaryGenerator(mock_client, mock_writer, sector_classifier=None)
+        gen._dashboard_sheet_id = 0
+
+        await gen._write_stock_summary(trades, start_row=50)
+
+        # 종목코드 컬럼(A=1)에 TEXT 포맷이 적용됐는지
+        calls = mock_client.apply_number_format_to_columns.call_args_list
+        assert any(
+            any(f.get('col') == 1 and f.get('type') == 'TEXT' for f in c.args[1])
+            for c in calls
+        ), "종목코드 컬럼(A)에 TEXT 포맷 적용 호출이 없습니다"
+
+
 class TestGroupConsecutiveRows:
     """연속 행 그룹핑 테스트"""
 

@@ -45,6 +45,28 @@ class TestBuildNumberFormatRequests:
         assert result == []
 
 
+class TestBuildTextFormatRequests:
+    """build_text_format_requests() 반환 구조 검증 (종목코드 TEXT 포맷)"""
+
+    def test_returns_text_format_for_column(self):
+        result = GoogleSheetsClient.build_text_format_requests(7, 3, 2, 1000)
+
+        assert len(result) == 1
+        req = result[0]['repeatCell']
+        assert req['range']['sheetId'] == 7
+        assert req['range']['startRowIndex'] == 1   # 2 - 1
+        assert req['range']['endRowIndex'] == 1000   # inclusive
+        assert req['range']['startColumnIndex'] == 2  # col 3 - 1
+        assert req['range']['endColumnIndex'] == 3
+        nf = req['cell']['userEnteredFormat']['numberFormat']
+        assert nf['type'] == 'TEXT'
+        assert nf['pattern'] == '@'
+        assert req['fields'] == 'userEnteredFormat.numberFormat'
+
+    def test_none_column_returns_empty(self):
+        assert GoogleSheetsClient.build_text_format_requests(0, None, 2, 10) == []
+
+
 class TestBuildColorRequests:
     """build_color_requests() 반환 구조 검증"""
 
