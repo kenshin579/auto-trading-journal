@@ -4,62 +4,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Auto Trading Journal (v2)은 증권사별 CSV 파일을 파싱하여 구글 시트에 자동으로 매매일지를 작성하는 Python 애플리케이션입니다. 국내/해외 주식을 지원하며, 증권사별 CSV 형식을 자동 감지합니다.
+Auto Trading Journal은 증권사별 CSV 파일을 파싱하여 구글 시트에 자동으로 매매일지를 작성하는 애플리케이션입니다. 국내/해외 주식을 지원하며, 증권사별 CSV 형식을 자동 감지합니다.
 
-## Quick Start Commands
+> **구현 언어: Go (현재 메인).** Python(`main.py`, `modules/`, `tests/`)은 1:1 Go 포팅의 **레퍼런스/백업**으로 보존되어 있으며, 별도 작업에서 제거 예정입니다. CSV는 CP949/UTF-8 모두 Go가 네이티브로 처리합니다(iconv 사전변환 불필요).
 
-### Setup
+## Quick Start Commands (Go)
+
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+# 실행 (config/config.yaml + env GOOGLE_SPREADSHEET_ID / SERVICE_ACCOUNT_PATH 필요)
+make run                 # = go run ./cmd/atj --log-level INFO
+make dry                 # 드라이런 (시트 미반영)
+go run ./cmd/atj --dry-run --log-level DEBUG
 
-# Install dependencies
-pip install -e .
+# 빌드 / 테스트
+make build               # → ./atj 바이너리
+make test                # = go test ./...
+go test ./internal/parser/ -v
 ```
 
-### Running the Application
-```bash
-# Run with default settings
-python main.py
+CLI 플래그: `--dry-run`, `--log-level DEBUG|INFO|WARNING|ERROR`.
 
-# Run with dry-run mode (no actual sheet updates)
-python main.py --dry-run
-
-# Run with debug logging
-python main.py --log-level DEBUG
-
-# Run using the script (includes timestamps and logging)
-./run.sh
-```
-
-### Testing
-```bash
-# Run all tests
-pytest
-
-# Run parser tests
-pytest tests/test_parsers.py
-
-# Run with verbose output
-pytest -v
-```
+### (백업) Python 실행
+Python 백업본은 `./run.sh`(iconv CP949→UTF-8 후 `python main.py`) 또는 `python main.py --dry-run`로 동일 동작. 신규 개발은 Go에서 진행하세요.
 
 ## Architecture Overview
 
-### Core Components
+### Go 패키지 구조 (현재 메인)
 
 ```
-StockDataProcessor (main.py)
-├── ParserRegistry  - CSV 헤더 기반 파서 자동 감지
-│   ├── MiraeDomesticParser  - 미래에셋 국내
-│   ├── MiraeForeignParser   - 미래에셋 해외
-│   └── HankookDomesticParser - 한국투자증권 국내
-├── SheetWriter     - 시트 생성/중복필터/데이터삽입/색상적용
-├── SummaryGenerator - 요약_월별, 요약_종목별 시트 생성
-├── SymbolResolver  - KRX 종목 마스터 종목명→종목코드 조회
-└── GoogleSheetsClient - Google Sheets API v4 래퍼
+cmd/atj/main.go              - 진입점 + 오케스트레이션 (StockDataProcessor 대응)
+internal/
+├── config   - config.yaml + env(GOOGLE_SPREADSHEET_ID / SERVICE_ACCOUNT_PATH) 로드
+├── model    - Trade struct + 행 변환 + 중복키 (DupKey)
+├── parser   - Parser 인터페이스 + registry(DetectParser) + mirae/hankook
+│             (readCSVRows 가 CP949/UTF-8 네이티브 디코딩)
+├── symbol   - KRX .mst → 종목코드 (fwf + cp949, 7일 캐시)
+├── sector   - OpenAI 섹터 분류 (go-openai, JSON 캐시) — 요약 "섹터별 투자비중"용
+├── sheets   - Google Sheets v4 래퍼 (값/포맷/색상/필터/차트 + 레이트리밋 재시도)
+├── writer   - 시트 생성/중복필터/삽입 + ReadAllTrades
+└── summary  - 단일 "대시보드" 시트 (요약/지표/인사이트/추이/차트)
 ```
+
+> Python(레퍼런스): `main.py` + `modules/{models,parsers/*,parser_registry,symbol_master,sheet_writer,summary_generator,sector_classifier,google_sheets_client}.py` 와 1:1 대응.
 
 ### Data Processing Pipeline
 
@@ -69,8 +55,8 @@ StockDataProcessor (main.py)
 4. **종목코드 보강**: 국내 거래 중 종목코드가 빈 항목을 KRX 마스터에서 조회해 채움
 5. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
 6. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
-7. **데이터 삽입**: 신규 거래 일괄 삽입 + 날짜별 색상 적용
-8. **요약 갱신**: 월별/종목별 요약 시트 초기화 후 재작성
+7. **데이터 삽입**: 신규 거래 일괄 삽입 + 숫자/통화 포맷 적용 (거래 시트 날짜별 배경색은 현재 미적용)
+8. **대시보드 갱신**: 단일 "대시보드" 시트 초기화 후 재작성 (포트폴리오/월별/종목별/투자지표/인사이트/추이 + 차트)
 
 ### Key Data Model
 
@@ -217,7 +203,8 @@ input/
 `(date, trade_type, stock_name, quantity, price)` 5-tuple로 중복 판별
 
 ### Color Coding
-8색 팔레트가 날짜별로 순환. 같은 날짜 = 같은 색상
+거래 시트의 날짜별 8색 배경 팔레트는 제거됨(현재 미적용). 배경색은 "대시보드" 시트의
+헤더 행에만 적용된다(`summary` 패키지).
 
 ### Adding a New Broker Parser
 
