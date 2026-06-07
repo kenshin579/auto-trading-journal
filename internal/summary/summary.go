@@ -123,8 +123,10 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 		return err
 	}
 
-	// Task 19 fills this: 차트 생성
-	//   g.createCharts(ctx, trendStart, stockStart-1)
+	// 차트 생성. (Python py:81-85)
+	if err := g.createCharts(ctx, trendStart, stockStart-1); err != nil {
+		return err
+	}
 
 	slog.Info("대시보드 시트 갱신 완료")
 	return nil
