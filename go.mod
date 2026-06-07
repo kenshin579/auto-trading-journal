@@ -3,6 +3,7 @@ module github.com/kenshin579/auto-trading-journal
 go 1.25.8
 
 require (
+	github.com/sashabaranov/go-openai v1.41.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/text v0.37.0
 	google.golang.org/api v0.283.0
