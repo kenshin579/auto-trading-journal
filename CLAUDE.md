@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Auto Trading Journal은 증권사별 CSV 파일을 파싱하여 구글 시트에 자동으로 매매일지를 작성하는 애플리케이션입니다. 국내/해외 주식을 지원하며, 증권사별 CSV 형식을 자동 감지합니다.
 
-> **구현 언어: Go (현재 메인).** Python(`main.py`, `modules/`, `tests/`)은 1:1 Go 포팅의 **레퍼런스/백업**으로 보존되어 있으며, 별도 작업에서 제거 예정입니다. CSV는 CP949/UTF-8 모두 Go가 네이티브로 처리합니다(iconv 사전변환 불필요).
+> **구현 언어: Go.** (Python 원본에서 1:1 포팅 후 Python 코드는 제거됨. 이력은 git `feature/go-porting` 브랜치 참조.) CSV는 CP949/UTF-8 모두 Go가 네이티브로 처리합니다(iconv 사전변환 불필요).
 
 ## Quick Start Commands (Go)
 
@@ -23,9 +23,6 @@ go test ./internal/parser/ -v
 ```
 
 CLI 플래그: `--dry-run`, `--log-level DEBUG|INFO|WARNING|ERROR`.
-
-### (백업) Python 실행
-Python 백업본은 `./run.sh`(iconv CP949→UTF-8 후 `python main.py`) 또는 `python main.py --dry-run`로 동일 동작. 신규 개발은 Go에서 진행하세요.
 
 ## Architecture Overview
 
@@ -44,8 +41,6 @@ internal/
 ├── writer   - 시트 생성/중복필터/삽입 + ReadAllTrades
 └── summary  - 단일 "대시보드" 시트 (요약/지표/인사이트/추이/차트)
 ```
-
-> Python(레퍼런스): `main.py` + `modules/{models,parsers/*,parser_registry,symbol_master,sheet_writer,summary_generator,sector_classifier,google_sheets_client}.py` 와 1:1 대응.
 
 ### Data Processing Pipeline
 
@@ -66,46 +61,34 @@ internal/
 - `to_foreign_row()`: 해외 15컬럼 행 반환
 - `duplicate_key()`: (date, trade_type, stock_name, quantity, price) 튜플
 
-### Module Responsibilities
+### Package Responsibilities
 
-**modules/models.py**:
-- Trade dataclass 정의
-- 국내/해외 행 변환, 중복 키 생성
+**internal/model** (`trade.go`):
+- `Trade` struct (16필드) + `ToDomesticRow`(10컬럼)/`ToForeignRow`(15컬럼)/`ToSheetRow` + `DuplicateKey`(DupKey)
 
-**modules/parsers/base_parser.py**:
-- BaseParser ABC (can_parse, parse 추상 메서드)
+**internal/parser** (`parser.go`, `mirae.go`, `hankook.go`, `registry.go`):
+- `Parser` 인터페이스(Name/CanParse/Parse), `DetectParser`(헤더 기반 자동 선택, 순서 Mirae국내→Mirae해외→Hankook)
+- `MiraeDomestic`(헤더 `일자,종목명,기간 중 매수`, 서브헤더 스킵), `MiraeForeign`(`매매일,통화,종목번호`), `HankookDomestic`(`매매일자,종목코드,매입단가`)
+- `readCSVRows`: CP949/UTF-8 네이티브 디코딩 + 천단위/쌍따옴표 처리
 
-**modules/parsers/mirae_parser.py**:
-- MiraeDomesticParser: 헤더 `일자, 종목명, 기간 중 매수` 감지, 서브헤더 건너뜀
-- MiraeForeignParser: 헤더 `매매일, 통화, 종목번호` 감지, 다중 통화 지원
+**internal/symbol** (`resolver.go`):
+- KRX 공개 마스터(`kospi/kosdaq_code.mst.zip`) 다운로드/cp949/fwf 파싱, `~/.cache/auto-trading-journal` 7일 캐시
+- `Resolver.Resolve`: 종목명→단축코드(lazy, 무인증·오프라인). 국내 CSV 코드 보강용
 
-**modules/parsers/hankook_parser.py**:
-- HankookDomesticParser: 헤더 `매매일자, 종목코드, 매입단가` 감지
-- 쌍따옴표/천단위 쉼표 처리
+**internal/sheets** (`client.go`, `format.go`, `chart.go`):
+- Google Sheets API v4 래퍼(서비스계정 인증), 값 I/O, 포맷/색상/필터/차트, 레이트리밋 재시도(`executeWithRetry`)
 
-**modules/parser_registry.py**:
-- detect_parser(): CSV 첫 행 읽어 파서 자동 선택
+**internal/writer** (`writer.go`, `headers.go`, `reader.go`):
+- `EnsureSheetExists`, `GetExistingKeys`(중복키), `InsertTrades`(포맷 적용), `ReadAllTrades`(대시보드 입력), 국내/해외 헤더 상수
 
-**modules/symbol_master.py**:
-- KRX 공개 종목 마스터(`kospi/kosdaq_code.mst.zip`) 다운로드/캐시/cp949 파싱
-- SymbolResolver.resolve(): 종목명 → 단축코드(티커) 조회 (lazy 로드, `~/.cache/auto-trading-journal` 7일 캐시)
-- 국내 CSV에 종목코드가 없는 경우(미래에셋 국내) 보강에 사용. 무인증·오프라인(캐시 후)
+**internal/summary** (`summary.go`, `sections.go`, `insights.go`, `formats.go`, `charts.go`):
+- 단일 "대시보드" 시트 생성: 포트폴리오/월별/종목별 요약 + 투자지표(섹터별 투자비중 포함)/매매인사이트/월별추이 + basic/pie 차트. 매 실행 초기화 후 재작성
 
-**modules/sheet_writer.py**:
-- ensure_sheet_exists(): 시트 자동 생성 + 헤더 삽입
-- get_existing_keys(): 중복 체크용 키 셋 반환
-- insert_trades(): 데이터 삽입 + 날짜별 색상 적용
-- 8색 팔레트, 국내/해외 헤더 상수
+**internal/sector** (`classifier.go`):
+- OpenAI(go-openai) 섹터 분류 + JSON 캐시(`config/sector_cache.json`). `STOCK_DATA_OPENAI_API_KEY` 있을 때만 활성
 
-**modules/summary_generator.py**:
-- generate_monthly_summary(): (연월, 계좌) 기준 집계 → 요약_월별 시트
-- generate_stock_summary(): (종목명, 종목코드, 계좌, 통화) 기준 집계 → 요약_종목별 시트
-- 매 실행 시 시트 초기화 후 재작성
-
-**modules/google_sheets_client.py**:
-- Google Sheets API v4 래퍼
-- 서비스 계정 인증, 비동기 컨텍스트 관리자
-- 시트 생성/삭제, 배치 업데이트, 색상 적용
+**internal/config** (`config.go`):
+- `config.yaml` + env(`GOOGLE_SPREADSHEET_ID`, `SERVICE_ACCOUNT_PATH`, `STOCK_DATA_OPENAI_API_KEY`) 로드
 
 ## Configuration
 
@@ -146,7 +129,7 @@ logging:
 국내계좌 시트는 종목명 앞에 `종목코드` 컬럼을 포함한 **10컬럼** 구조입니다
 (일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률(%)).
 종목코드는 미래에셋 국내처럼 CSV에 코드가 없는 경우 KRX 공개 종목 마스터
-(`modules/symbol_master.py`)에서 종목명으로 조회해 채웁니다.
+(`internal/symbol`)에서 종목명으로 조회해 채웁니다.
 
 **기존 9컬럼 시트 마이그레이션**: 종목코드 컬럼 도입 이전에 생성된 국내 시트는
 삭제 후 재실행하거나 D열에 `종목코드` 컬럼을 수동 삽입해야 합니다. 옛 포맷(9컬럼)
@@ -194,10 +177,10 @@ input/
 
 ## Important Implementation Notes
 
-### Async/Await Pattern
-- `async with self.client` 컨텍스트 관리자 사용
-- 시트 작업은 모두 async: `await self.sheet_writer.ensure_sheet_exists()`
-- 진입점: `asyncio.run(processor.run())`
+### 실행 흐름 (cmd/atj)
+- `context.Context` 를 모든 Sheets 호출에 전달. Sheets 작업은 순차 + 배치(레이트리밋 최소화)
+- 진입점: `cmd/atj/main.go` → scan → 파일별 처리(파서감지/파싱/코드보강/중복필터/삽입) → 대시보드 갱신
+- `STOCK_DATA_OPENAI_API_KEY` 설정 시에만 섹터 분류 활성
 
 ### Duplicate Detection
 `(date, trade_type, stock_name, quantity, price)` 5-tuple로 중복 판별
@@ -208,10 +191,10 @@ input/
 
 ### Adding a New Broker Parser
 
-1. `modules/parsers/` 에 새 파서 파일 생성
-2. `BaseParser` 상속, `can_parse()` 와 `parse()` 구현
-3. `modules/parsers/__init__.py` 에 export 추가
-4. `modules/parser_registry.py` 의 `PARSERS` 리스트에 등록
+1. `internal/parser/` 에 새 파서 파일 생성
+2. `Parser` 인터페이스(`Name`/`CanParse`/`Parse`) 구현
+3. `internal/parser/registry.go` 의 `registry` 슬라이스에 등록
+4. 테스트 + `testdata/` 픽스처 추가
 5. `tests/test_parsers.py` 에 테스트 추가
 
 ### Text Encoding (Korean Content)
