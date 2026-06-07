@@ -108,15 +108,23 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 		return err
 	}
 
-	// 아래는 Task 18/19 가 채운다 (포맷/색상/차트/거래건수 데이터).
-	_ = monthlyStart
-	_ = metricsStart
-	_ = insightsStart
-	_ = trendStart
-	_ = stockStart
+	// 포맷/색상 요청을 pendingRequests 에 수집. (Python generate_all py:69-73)
+	g.collectHeaderColors(monthlyStart, trendStart, stockStart)
+	g.collectDashboardFormats(monthlyStart, metricsStart, insightsStart,
+		trendStart, stockStart, currentRow)
 
-	// Task 18 fills this: 헤더 색상/포맷 요청 수집 + 거래건수 데이터 + flush
+	// 차트용 거래건수 데이터 작성 (포맷 요청도 수집됨). (Python py:76)
+	if err := g.writeTradeCountData(ctx, trades); err != nil {
+		return err
+	}
+
+	// 수집된 포맷/색상 요청을 1회 batchUpdate 로 전송. (#57) (Python py:79)
+	if err := g.flushPendingRequests(ctx); err != nil {
+		return err
+	}
+
 	// Task 19 fills this: 차트 생성
+	//   g.createCharts(ctx, trendStart, stockStart-1)
 
 	slog.Info("대시보드 시트 갱신 완료")
 	return nil
