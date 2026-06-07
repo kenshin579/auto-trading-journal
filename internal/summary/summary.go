@@ -9,6 +9,8 @@ import (
 	"context"
 	"log/slog"
 
+	gsheets "google.golang.org/api/sheets/v4"
+
 	"github.com/kenshin579/auto-trading-journal/internal/model"
 	"github.com/kenshin579/auto-trading-journal/internal/sheets"
 	"github.com/kenshin579/auto-trading-journal/internal/writer"
@@ -41,8 +43,19 @@ type Generator struct {
 	writer *writer.Writer
 	sc     SectorClassifier // nil 가능
 
-	// 차트/포맷 수집 상태 (Task 18/19 가 채움)
+	// 차트/포맷 수집 상태.
 	dashboardSheetID int64
+	pendingRequests  []*gsheets.Request // 포맷/색상 요청 누적 (#57 1회 batchUpdate)
+
+	// 차트가 참조할 데이터 범위 (start,end 1-based, ok=true 일 때 유효).
+	pieDataRange        rowRange // 파이 차트용 데이터 (계좌별 투자비중)
+	tradeCountDataRange rowRange // 월별 매수/매도 건수·금액
+}
+
+// rowRange 는 차트가 참조할 행 범위 (1-based, inclusive). ok=false 면 데이터 없음.
+type rowRange struct {
+	start, end int
+	ok         bool
 }
 
 // New 는 Generator 를 생성한다. sc 는 nil 일 수 있다.
@@ -53,6 +66,7 @@ func New(client *sheets.Client, w *writer.Writer, sc SectorClassifier) *Generato
 
 // GenerateAll 은 대시보드 시트를 초기화 후 재작성한다. (Python generate_all)
 func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error {
+	g.pendingRequests = nil
 	if err := g.EnsureDashboardSheet(ctx); err != nil {
 		return err
 	}
@@ -95,23 +109,14 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 	}
 
 	// 아래는 Task 18/19 가 채운다 (포맷/색상/차트/거래건수 데이터).
-	// 현재는 컴파일/실행이 되도록 변수만 참조해 둔다.
 	_ = monthlyStart
 	_ = metricsStart
 	_ = insightsStart
 	_ = trendStart
 	_ = stockStart
 
-	// Task 18 fills this: 헤더 색상/포맷 요청 수집
-	//   g.collectHeaderColors(monthlyStart, trendStart, stockStart)
-	//   g.collectDashboardFormats(monthlyStart, metricsStart, insightsStart,
-	//       trendStart, stockStart, currentRow)
-	// Task 18 fills this: 차트용 거래건수 데이터 작성
-	//   g.writeTradeCountData(ctx, trades)
-	// Task 18 fills this: 수집된 포맷/색상 요청 1회 전송
-	//   g.flushPendingRequests(ctx)
+	// Task 18 fills this: 헤더 색상/포맷 요청 수집 + 거래건수 데이터 + flush
 	// Task 19 fills this: 차트 생성
-	//   g.createCharts(ctx, trendStart, stockStart-1)
 
 	slog.Info("대시보드 시트 갱신 완료")
 	return nil
@@ -154,23 +159,4 @@ func (g *Generator) EnsureDashboardSheet(ctx context.Context) error {
 		return err
 	}
 	return nil
-}
-
-// ── Task 17 stubs ──────────────────────────────────────────
-// Task 17 fills these: 투자지표/매매인사이트/월별추이.
-// 현재는 startRow 를 그대로 반환한다(no-op).
-
-// writeInvestmentMetrics: 섹션 4. (Python _write_investment_metrics, py:269-)
-func (g *Generator) writeInvestmentMetrics(_ context.Context, _ []model.Trade, startRow int) (int, error) {
-	return startRow, nil // Task 17 fills this
-}
-
-// writeTradingInsights: 섹션 5. (Python _write_trading_insights)
-func (g *Generator) writeTradingInsights(_ context.Context, _ []model.Trade, startRow int) (int, error) {
-	return startRow, nil // Task 17 fills this
-}
-
-// writeMonthlyTrend: 섹션 6(월별 성과 추이). (Python _write_monthly_trend)
-func (g *Generator) writeMonthlyTrend(_ context.Context, _ []model.Trade, startRow int) (int, error) {
-	return startRow, nil // Task 17 fills this
 }

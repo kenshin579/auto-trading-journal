@@ -169,6 +169,18 @@ func buildColorRequests(sheetID int64, colorRanges []ColorRange) []*gsheets.Requ
 	return reqs
 }
 
+// BuildColorRequests 는 buildColorRequests 의 공개 래퍼다(다른 패키지가 요청을 모아
+// ExecuteBatchRequests 로 1회 전송할 수 있도록). (Python GoogleSheetsClient.build_color_requests)
+func BuildColorRequests(sheetID int64, colorRanges []ColorRange) []*gsheets.Request {
+	return buildColorRequests(sheetID, colorRanges)
+}
+
+// BuildNumberFormatRequests 는 buildNumberFormatRequests 의 공개 래퍼다.
+// (Python GoogleSheetsClient.build_number_format_requests)
+func BuildNumberFormatRequests(sheetID int64, columnFormats []ColumnFormat, startRow, endRow int) []*gsheets.Request {
+	return buildNumberFormatRequests(sheetID, columnFormats, startRow, endRow)
+}
+
 // ── batchUpdate 실행 헬퍼 ──────────────────────────────────
 
 // batchUpdate 는 requests 를 단일 batchUpdate 로 실행하며 재시도를 적용한다.
