@@ -54,6 +54,11 @@ func Load(path string) (*Config, error) {
 	if c.OpenAI.SectorCacheFile == "" {
 		c.OpenAI.SectorCacheFile = "config/sector_cache.json"
 	}
+	// 서비스 계정 경로: yaml 우선, 비어있으면 env SERVICE_ACCOUNT_PATH 폴백
+	// (Python GoogleSheetsClient.__init__ 와 동일 동작).
 	c.ServiceAccountPath = c.GoogleSheets.ServiceAccountPath
+	if c.ServiceAccountPath == "" {
+		c.ServiceAccountPath = os.Getenv("SERVICE_ACCOUNT_PATH")
+	}
 	return &c, nil
 }
