@@ -1,7 +1,6 @@
 package model
 
 import (
-	"math"
 	"strconv"
 	"strings"
 )
@@ -31,13 +30,13 @@ type DupKey [5]string
 func (t Trade) IsForeign() bool  { return strings.Contains(t.Account, "해외") }
 func (t Trade) IsDomestic() bool { return !t.IsForeign() }
 
+// rate: Python `self.profit_rate / 100 if self.profit_rate else 0` 와 동일.
+// 반올림하지 않아 Python의 float64 결과(예 0.14679999999999999)와 정확히 일치한다.
 func rate(p float64) float64 {
 	if p == 0 {
 		return 0
 	}
-	// Round to 4 decimal places to avoid IEEE 754 representation noise
-	// e.g. 14.68/100 = 0.14679999999999999 → 0.1468
-	return math.Round(p/100*10000) / 10000
+	return p / 100
 }
 
 // ToDomesticRow: 국내 10컬럼

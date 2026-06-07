@@ -13,10 +13,32 @@ func sampleDomestic() Trade {
 }
 
 func TestToDomesticRow(t *testing.T) {
-	r := sampleDomestic().ToDomesticRow()
+	tr := sampleDomestic()
+	r := tr.ToDomesticRow()
 	// 일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익, 수익률(소수)
+	// 수익률은 Python과 동일하게 반올림 없이 ProfitRate/100 (동일 float64 변수의 런타임 나눗셈)으로 비교.
 	assert.Equal(t, []any{"2026-02-13", "매도", "005930", "삼성전자",
-		10.0, 70000.0, 700000.0, 1500.0, 50000.0, 0.1468}, r)
+		10.0, 70000.0, 700000.0, 1500.0, 50000.0, tr.ProfitRate / 100}, r)
+}
+
+func TestToForeignRow_15Cols(t *testing.T) {
+	tr := sampleDomestic()
+	tr.Account = "미래에셋증권_해외계좌"
+	tr.Currency = "USD"
+	r := tr.ToForeignRow()
+	assert.Len(t, r, 15)
+	assert.Equal(t, "USD", r[2])
+	assert.Equal(t, "005930", r[3])
+	assert.Equal(t, "삼성전자", r[4])
+}
+
+func TestRate_MatchesPythonUnrounded(t *testing.T) {
+	tr := sampleDomestic()
+	tr.ProfitRate = 14.68
+	row := tr.ToDomesticRow()
+	assert.Equal(t, tr.ProfitRate/100, row[9]) // 반올림 없음, Python과 동일
+	tr.ProfitRate = 0
+	assert.Equal(t, 0.0, tr.ToDomesticRow()[9])
 }
 
 func TestDuplicateKey_NumberNormalization(t *testing.T) {
