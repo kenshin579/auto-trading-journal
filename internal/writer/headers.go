@@ -26,21 +26,21 @@ var ForeignHeaders = []string{
 
 // DomesticFormats 는 국내계좌 컬럼별 숫자 포맷(1-based col). (Python DOMESTIC_FORMATS)
 var DomesticFormats = []sheets.ColumnFormat{
-	{Col: 5, Pattern: "#,##0"},                     // E: 수량
-	{Col: 6, Pattern: "₩#,##0"},                    // F: 단가
-	{Col: 7, Pattern: "₩#,##0"},                    // G: 금액
-	{Col: 8, Pattern: "₩#,##0"},                    // H: 수수료
-	{Col: 9, Pattern: "₩#,##0"},                    // I: 손익금액
-	{Col: 10, Pattern: "0.00%", Type: "PERCENT"},   // J: 수익률
+	{Col: 5, Pattern: "#,##0"},                   // E: 수량
+	{Col: 6, Pattern: "₩#,##0"},                  // F: 단가
+	{Col: 7, Pattern: "₩#,##0"},                  // G: 금액
+	{Col: 8, Pattern: "₩#,##0"},                  // H: 수수료
+	{Col: 9, Pattern: "₩#,##0"},                  // I: 손익금액
+	{Col: 10, Pattern: "0.00%", Type: "PERCENT"}, // J: 수익률
 }
 
 // ForeignFormatsCommon 은 해외계좌 통화 무관 컬럼 포맷(1-based col). (Python FOREIGN_FORMATS_COMMON)
 var ForeignFormatsCommon = []sheets.ColumnFormat{
-	{Col: 6, Pattern: "#,##0"},                     // F: 수량
-	{Col: 9, Pattern: "#,##0.00"},                  // I: 환율
-	{Col: 10, Pattern: "₩#,##0"},                   // J: 금액(원화)
-	{Col: 14, Pattern: "₩#,##0"},                   // N: 손익(원화)
-	{Col: 15, Pattern: "0.00%", Type: "PERCENT"},   // O: 수익률
+	{Col: 6, Pattern: "#,##0"},                   // F: 수량
+	{Col: 9, Pattern: "#,##0.00"},                // I: 환율
+	{Col: 10, Pattern: "₩#,##0"},                 // J: 금액(원화)
+	{Col: 14, Pattern: "₩#,##0"},                 // N: 손익(원화)
+	{Col: 15, Pattern: "0.00%", Type: "PERCENT"}, // O: 수익률
 }
 
 // ForeignCurrencyCols 는 해외계좌 통화별 외화 컬럼(1-based). (Python FOREIGN_CURRENCY_COLS)
