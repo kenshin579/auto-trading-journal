@@ -1,22 +1,13 @@
 package parser
 
 import (
-	"encoding/csv"
 	"fmt"
-	"os"
 )
 
 var registry = []Parser{MiraeDomestic{}, MiraeForeign{}, HankookDomestic{}}
 
 func DetectParser(path string) (Parser, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	r := csv.NewReader(f)
-	r.FieldsPerRecord = -1
-	header, err := r.Read()
+	header, err := readCSVHeader(path)
 	if err != nil {
 		return nil, fmt.Errorf("헤더 읽기 실패: %s: %w", base(path), err)
 	}

@@ -1,9 +1,7 @@
 package parser
 
 import (
-	"encoding/csv"
 	"fmt"
-	"os"
 
 	"github.com/kenshin579/auto-trading-journal/internal/model"
 )
@@ -18,14 +16,7 @@ func (MiraeDomestic) CanParse(h []string) bool {
 }
 
 func (MiraeDomestic) Parse(path, account string) ([]model.Trade, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	r := csv.NewReader(f)
-	r.FieldsPerRecord = -1
-	rows, err := r.ReadAll()
+	rows, err := readCSVRows(path)
 	if err != nil {
 		return nil, err
 	}
@@ -75,14 +66,7 @@ func (MiraeForeign) CanParse(h []string) bool {
 }
 
 func (MiraeForeign) Parse(path, account string) ([]model.Trade, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	r := csv.NewReader(f)
-	r.FieldsPerRecord = -1
-	rows, err := r.ReadAll()
+	rows, err := readCSVRows(path)
 	if err != nil {
 		return nil, err
 	}

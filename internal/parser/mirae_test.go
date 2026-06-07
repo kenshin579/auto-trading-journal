@@ -32,6 +32,22 @@ func TestMiraeForeign_Parse(t *testing.T) {
 	assert.InDelta(t, 3.71, trades[1].ProfitRate, 0.001)
 }
 
+func TestMiraeDomestic_ParseCP949(t *testing.T) {
+	// 증권사 CSV는 CP949 인코딩이 흔하다. 디코딩 없이는 한글 헤더 매칭/파싱이 깨진다.
+	p := MiraeDomestic{}
+	// DetectParser도 CP949 헤더를 인식해야 한다.
+	det, err := DetectParser("../../testdata/mirae_domestic_cp949.csv")
+	require.NoError(t, err)
+	assert.Equal(t, "MiraeDomesticParser", det.Name())
+
+	trades, err := p.Parse("../../testdata/mirae_domestic_cp949.csv", "미래에셋증권_국내계좌")
+	require.NoError(t, err)
+	require.Len(t, trades, 2)
+	assert.Equal(t, "삼성전자", trades[0].StockName) // 한글 정상 디코딩
+	assert.Equal(t, "매수", trades[0].TradeType)
+	assert.Equal(t, 700000.0, trades[0].Amount)
+}
+
 func TestMiraeDomestic_Parse(t *testing.T) {
 	p := MiraeDomestic{}
 	assert.True(t, p.CanParse([]string{"일자", "종목명", "기간 중 매수"}))
