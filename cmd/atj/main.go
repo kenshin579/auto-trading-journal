@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kenshin579/auto-trading-journal/internal/bizcat"
 	"github.com/kenshin579/auto-trading-journal/internal/config"
 	"github.com/kenshin579/auto-trading-journal/internal/model"
 	"github.com/kenshin579/auto-trading-journal/internal/parser"
@@ -50,6 +51,21 @@ func enrichDomesticCodes(trades []model.Trade, r resolver) {
 			if code := r.Resolve(t.StockName); code != "" {
 				t.StockCode = code
 			}
+		}
+	}
+}
+
+// bizcatResolver 는 종목코드 → (섹터, 산업) 조회를 추상화한다(테스트 스텁 주입용).
+type bizcatResolver interface {
+	Resolve(code string) (sector, industry string)
+}
+
+// enrichSectors 는 국내 거래(코드 있음)에 섹터/산업을 채운다(in-place). 해외/무코드는 스킵.
+func enrichSectors(trades []model.Trade, r bizcatResolver) {
+	for i := range trades {
+		t := &trades[i]
+		if t.IsDomestic() && t.StockCode != "" {
+			t.Sector, t.Industry = r.Resolve(t.StockCode)
 		}
 	}
 }
@@ -113,11 +129,13 @@ func scanCSVFiles(root string) ([]csvFile, error) {
 
 // processor 는 주식 데이터 처리기. (Python StockDataProcessor)
 type processor struct {
-	dryRun    bool
-	client    *sheets.Client
-	writer    *writer.Writer
-	summary   *summary.Generator
-	symbolRes resolver
+	dryRun     bool
+	client     *sheets.Client
+	writer     *writer.Writer
+	summary    *summary.Generator
+	symbolRes  resolver
+	bizcatRes  bizcatResolver
+	bizcatStore *bizcat.Resolver
 }
 
 // newProcessor 는 config 를 로드하고 모든 의존성을 조립한다.
@@ -147,12 +165,16 @@ func newProcessor(ctx context.Context, dryRun bool, cfg *config.Config) (*proces
 		slog.Info("STOCK_DATA_OPENAI_API_KEY 미설정 → 섹터 분류 비활성화")
 	}
 
+	bc := bizcat.New("config/bizcat_cache.json")
+
 	return &processor{
-		dryRun:    dryRun,
-		client:    client,
-		writer:    w,
-		summary:   summary.New(client, w, sc),
-		symbolRes: symbol.New(),
+		dryRun:      dryRun,
+		client:      client,
+		writer:      w,
+		summary:     summary.New(client, w, sc),
+		symbolRes:   symbol.New(),
+		bizcatRes:   bc,
+		bizcatStore: bc,
 	}, nil
 }
 
@@ -175,6 +197,7 @@ func (p *processor) processFile(ctx context.Context, f csvFile) ([]model.Trade, 
 		return nil, err
 	}
 	enrichDomesticCodes(trades, p.symbolRes)
+	enrichSectors(trades, p.bizcatRes)
 	if len(trades) == 0 {
 		slog.Warn(fmt.Sprintf("파싱 결과 없음: %s", filepath.Base(f.path)))
 		return nil, nil
@@ -233,6 +256,9 @@ func (p *processor) processFile(ctx context.Context, f csvFile) ([]model.Trade, 
 func (p *processor) run(ctx context.Context) error {
 	slog.Info("=== 매매일지 구글 시트 입력 시작 (v2) ===")
 	defer slog.Info("스크립트 실행 완료")
+	if p.bizcatStore != nil {
+		defer p.bizcatStore.Save()
+	}
 
 	// 1. CSV 파일 스캔 및 시트 삽입
 	csvFiles, err := scanCSVFiles(inputDir)
