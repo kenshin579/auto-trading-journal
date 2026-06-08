@@ -3,6 +3,7 @@ module github.com/kenshin579/auto-trading-journal
 go 1.25.8
 
 require (
+	github.com/kenshin579/korea-investment-stock v1.27.0
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/text v0.37.0
@@ -27,7 +28,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.16 // indirect
 	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
 	github.com/jarcoal/httpmock v1.4.1 // indirect
-	github.com/kenshin579/korea-investment-stock v1.27.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/redis/go-redis/v9 v9.19.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
