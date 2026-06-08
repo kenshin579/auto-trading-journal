@@ -323,10 +323,25 @@ func parseLogLevel(s string) (slog.Level, error) {
 	}
 }
 
+// ensureKISFileToken 은 atj 프로세스가 KIS 토큰을 파일에 캐시하도록 강제한다.
+// 사용자 env(KOREA_INVESTMENT_TOKEN_STORAGE=redis)가 로컬 Redis 를 가리켜도 Redis 미동작 시
+// 매 호출 토큰 재발급 → KIS 발급 제한(403/500)에 걸린다. atj 는 파일 토큰으로 동작해 Redis
+// 의존을 제거한다. os.Setenv 는 현재 프로세스에만 적용되어 다른 KIS 도구 env 에는 영향 없다.
+func ensureKISFileToken() {
+	os.Setenv("KOREA_INVESTMENT_TOKEN_STORAGE", "file")
+	if os.Getenv("KOREA_INVESTMENT_TOKEN_FILE") == "" {
+		home, _ := os.UserHomeDir()
+		os.Setenv("KOREA_INVESTMENT_TOKEN_FILE",
+			filepath.Join(home, ".cache", "auto-trading-journal", "kis_token.json"))
+	}
+}
+
 func main() {
 	dryRun := flag.Bool("dry-run", false, "실제 데이터 입력 없이 시뮬레이션만 수행합니다.")
 	logLevel := flag.String("log-level", "INFO", "로그 레벨을 설정합니다 (DEBUG/INFO/WARNING/ERROR, 기본값: INFO)")
 	flag.Parse()
+
+	ensureKISFileToken()
 
 	level, err := parseLogLevel(*logLevel)
 	if err != nil {
