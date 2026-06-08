@@ -101,6 +101,9 @@ func kisFetch() func(string) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return info.IdxBztpLclsCdName, info.IdxBztpMclsCdName, nil
+		// 주의: 대분류(IdxBztpLclsCdName)는 "시가총액규모"라 업종이 아니다(예 "시가총액규모대").
+		// 실제 업종은 중분류(예 "전기,전자"), 소분류가 더 세부다.
+		// → 섹터=중분류, 산업=소분류.
+		return info.IdxBztpMclsCdName, info.IdxBztpSclsCdName, nil
 	}
 }
