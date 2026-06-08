@@ -199,6 +199,14 @@ func cellHasValue(cell *gsheets.CellData) bool {
 
 // ── 중복 필터 ──────────────────────────────────────────────
 
+// keyColsForGrid 는 (종목명, 수량, 단가) 컬럼 인덱스를 반환한다(섹터/산업 삽입 후).
+func keyColsForGrid(isForeign bool) (nameCol, qtyCol, priceCol int) {
+	if isForeign {
+		return 4, 7, 8
+	}
+	return 3, 6, 7
+}
+
 // GetExistingKeys 는 기존 데이터에서 중복 체크용 키 셋을 반환한다.
 // 키: (일자, 구분, 종목명, 수량, 단가). (Python get_existing_keys)
 //
@@ -206,7 +214,7 @@ func cellHasValue(cell *gsheets.CellData) bool {
 // model.Trade.DuplicateKey() 와 비교 가능하도록 정규화한다.
 func (w *Writer) GetExistingKeys(ctx context.Context, sheetName string, isForeign bool) (map[model.DupKey]bool, error) {
 	keys := make(map[model.DupKey]bool)
-	grid, err := w.client.GetRawGridData(ctx, sheetName, "A2:O10000")
+	grid, err := w.client.GetRawGridData(ctx, sheetName, "A2:Q10000")
 	if err != nil {
 		// Python 은 예외를 잡아 빈 셋을 반환. 동등하게 soft 처리.
 		slog.Error("기존 키 로드 실패", "sheet", sheetName, "err", err)
@@ -216,9 +224,10 @@ func (w *Writer) GetExistingKeys(ctx context.Context, sheetName string, isForeig
 		return keys, nil
 	}
 
+	nameCol, qtyCol, priceCol := keyColsForGrid(isForeign)
 	for _, row := range grid.RowData {
 		values := row.Values
-		if len(values) < 6 {
+		if len(values) <= priceCol {
 			continue
 		}
 		// 날짜(col 0): formattedValue 사용.
@@ -227,24 +236,11 @@ func (w *Writer) GetExistingKeys(ctx context.Context, sheetName string, isForeig
 			continue
 		}
 		tradeType := stringFromCell(cellEffective(values[1]))
-
-		var key model.DupKey
-		if isForeign && len(values) >= 7 {
-			// 해외: 종목명=4, 수량=5, 단가=6
-			stockName := stringFromCell(cellEffective(values[4]))
-			key = model.DupKey{
-				dateVal, tradeType, stockName,
-				normalizeCellValue(cellEffective(values[5])),
-				normalizeCellValue(cellEffective(values[6])),
-			}
-		} else {
-			// 국내(10컬럼): 종목명=3, 수량=4, 단가=5
-			stockName := stringFromCell(cellEffective(values[3]))
-			key = model.DupKey{
-				dateVal, tradeType, stockName,
-				normalizeCellValue(cellEffective(values[4])),
-				normalizeCellValue(cellEffective(values[5])),
-			}
+		stockName := stringFromCell(cellEffective(values[nameCol]))
+		key := model.DupKey{
+			dateVal, tradeType, stockName,
+			normalizeCellValue(cellEffective(values[qtyCol])),
+			normalizeCellValue(cellEffective(values[priceCol])),
 		}
 		keys[key] = true
 	}
