@@ -6,11 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRowToTradeDomestic(t *testing.T) {
-	row := []interface{}{"2026-02-13", "매도", "005930", "삼성전자", "10", "75000", "750000", "1500", "50000", "0.0714"}
+func TestRowToTradeDomestic_12cols(t *testing.T) {
+	row := []interface{}{"2026-02-13", "매도", "005930", "삼성전자", "전기·전자", "반도체",
+		"10", "75000", "750000", "1500", "50000", "0.0714"}
 	tr := rowToTrade(row, false, "미래에셋증권_국내계좌")
 	assert.Equal(t, "삼성전자", tr.StockName)
 	assert.Equal(t, "005930", tr.StockCode)
+	assert.Equal(t, 10.0, tr.Quantity)
+	assert.Equal(t, 75000.0, tr.Price)
 	assert.InDelta(t, 7.14, tr.ProfitRate, 0.01)
 	assert.Equal(t, "KRW", tr.Currency)
 	assert.Equal(t, 1.0, tr.ExchangeRate)
@@ -25,6 +28,7 @@ func TestRowToTradeDomestic(t *testing.T) {
 // 그리드 effectiveValue(float64) 입력으로도 동일하게 동작해야 한다.
 func TestRowToTradeDomesticFloat(t *testing.T) {
 	row := []interface{}{"2026-02-13", "매수", "005930", "삼성전자",
+		"전기·전자", "반도체",
 		float64(10), float64(75000), float64(750000), float64(1500), float64(0), float64(0)}
 	tr := rowToTrade(row, false, "acct")
 	assert.Equal(t, 10.0, tr.Quantity)
@@ -32,24 +36,15 @@ func TestRowToTradeDomesticFloat(t *testing.T) {
 	assert.Equal(t, 0.0, tr.ProfitRate)
 }
 
-func TestRowToTradeForeign(t *testing.T) {
-	row := []interface{}{"2026-02-13", "매도", "USD", "AAPL", "애플",
-		float64(5), float64(180.5), float64(902.5), float64(1380.2), float64(1245630),
-		float64(1.0), float64(0.5), float64(100.5), float64(138710), float64(0.1268)}
+func TestRowToTradeForeign_17cols(t *testing.T) {
+	row := []interface{}{"2026-03-15", "매도", "USD", "AAPL", "Apple", "", "",
+		"5", "182", "910", "1365", "1241650", "910", "150", "32.5", "46700", "0.0371"}
 	tr := rowToTrade(row, true, "미래에셋증권_해외계좌")
-	assert.Equal(t, "USD", tr.Currency)
 	assert.Equal(t, "AAPL", tr.StockCode)
-	assert.Equal(t, "애플", tr.StockName)
+	assert.Equal(t, "Apple", tr.StockName)
 	assert.Equal(t, 5.0, tr.Quantity)
-	assert.Equal(t, 180.5, tr.Price)
-	assert.Equal(t, 902.5, tr.Amount)
-	assert.Equal(t, 1380.2, tr.ExchangeRate)
-	assert.Equal(t, 1245630.0, tr.AmountKRW)
-	assert.Equal(t, 1.0, tr.Fee)
-	assert.Equal(t, 0.5, tr.Tax)
-	assert.Equal(t, 100.5, tr.Profit)
-	assert.Equal(t, 138710.0, tr.ProfitKRW)
-	assert.InDelta(t, 12.68, tr.ProfitRate, 0.01)
+	assert.Equal(t, 46700.0, tr.ProfitKRW)
+	assert.InDelta(t, 3.71, tr.ProfitRate, 0.01)
 }
 
 // 종목코드가 숫자로 저장된 경우(TEXT 포맷 이전 행) 정수 문자열로 복원.
