@@ -55,11 +55,19 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 		case headersEqual(headerRow, ForeignHeaders):
 			isForeign = true
 		case headersEqual(headerRow, OldDomesticHeadersV2),
-			headersEqual(headerRow, OldForeignHeadersV1),
 			headersEqual(headerRow, OldDomesticHeadersV1):
-			slog.Warn("시트가 섹터/산업 추가 이전 포맷입니다. 시트를 삭제 후 재실행하거나 "+
-				"종목명 뒤에 '섹터','산업' 컬럼을 수동 삽입하세요. (이번 실행에서는 스킵)", "sheet", sheetName)
-			continue
+			// 구 포맷 → 신 포맷 자동 마이그레이션 후 읽기.
+			if err := w.migrateSheet(ctx, sheetName, headerRow, DomesticHeaders); err != nil {
+				slog.Error("자동 마이그레이션 실패, 스킵", "sheet", sheetName, "err", err)
+				continue
+			}
+			isForeign = false
+		case headersEqual(headerRow, OldForeignHeadersV1):
+			if err := w.migrateSheet(ctx, sheetName, headerRow, ForeignHeaders); err != nil {
+				slog.Error("자동 마이그레이션 실패, 스킵", "sheet", sheetName, "err", err)
+				continue
+			}
+			isForeign = true
 		default:
 			slog.Debug("시트 스킵(매매일지 헤더 불일치)", "sheet", sheetName)
 			continue

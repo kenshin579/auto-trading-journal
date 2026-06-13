@@ -91,6 +91,29 @@ func (c *Client) InvalidateSheetIDCache() {
 	c.sheetIDCache = make(map[string]int64)
 }
 
+// InsertColumns 는 시트의 startIdx(0-based) 위치에 count 개 빈 열을 삽입한다.
+// 기존 데이터는 우측으로 밀리고 값은 보존된다(엑셀 "열 삽입"과 동일).
+func (c *Client) InsertColumns(ctx context.Context, sheetName string, startIdx, count int) error {
+	sheetID, ok, err := c.GetSheetID(ctx, sheetName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("sheets: 시트를 찾을 수 없습니다: %s", sheetName)
+	}
+	return c.batchUpdate(ctx, []*gsheets.Request{{
+		InsertDimension: &gsheets.InsertDimensionRequest{
+			Range: &gsheets.DimensionRange{
+				SheetId:    sheetID,
+				Dimension:  "COLUMNS",
+				StartIndex: int64(startIdx),
+				EndIndex:   int64(startIdx + count),
+			},
+			InheritFromBefore: false,
+		},
+	}})
+}
+
 // GetRawGridData 는 effectiveValue + formattedValue 를 함께 조회한다. (Python get_raw_grid_data)
 // sheetName 과 rangeA1(예: "A2:O10000")을 받아 내부에서 "sheetName!rangeA1" 로 조합한다.
 func (c *Client) GetRawGridData(ctx context.Context, sheetName, rangeA1 string) (*gsheets.GridData, error) {
