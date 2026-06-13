@@ -49,7 +49,7 @@ internal/
 2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
 3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
 4. **종목코드 보강**: 국내 거래 중 종목코드가 빈 항목을 KRX 마스터에서 조회해 채움
-4b. **섹터/산업 보강**: 국내 거래에 KIS 지수업종(중분류=섹터, 소분류=산업) 조회해 채움 (`internal/bizcat`, 해외는 공란)
+4b. **섹터/산업 보강**: 국내 거래에 KIS 조회로 채움 — 섹터=지수업종 중분류, 산업=표준산업분류 (`internal/bizcat`, 해외는 공란)
 5. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
 6. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
 7. **데이터 삽입**: 신규 거래 일괄 삽입 + 숫자/통화 포맷 적용 (거래 시트 날짜별 배경색은 현재 미적용)
@@ -69,7 +69,7 @@ internal/
 - `Trade` struct (Sector/Industry 포함) + `ToDomesticRow`(12컬럼)/`ToForeignRow`(17컬럼)/`ToSheetRow` + `DuplicateKey`(DupKey; 섹터/산업 미포함)
 
 **internal/bizcat** (`resolver.go`):
-- KIS `Domestic.SearchStockInfo(code,"300")` → 섹터=지수업종 **중분류**(`IdxBztpMclsCdName`, 예 "전기,전자"), 산업=**소분류**(`IdxBztpSclsCdName`). ⚠️ 대분류는 "시가총액규모"라 미사용.
+- KIS `Domestic.SearchStockInfo(code,"300")` → 섹터=지수업종 **중분류**(`IdxBztpMclsCdName`, 예 "전기,전자"), 산업=**표준산업분류**(`StdIdstClsfCdName`, 예 "의료용 기기 제조업"). ⚠️ 대분류는 "시가총액규모"라 미사용. 소분류(`IdxBztpSclsCdName`)는 중분류와 동일값이라 미사용. 표준산업분류는 지수업종이 비는 일반 종목(클래시스·솔루엠 등)도 채워져 커버리지가 넓다(ETF·일부 종목은 둘 다 공란).
 - 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. KIS 키 없거나 실패 시 빈 값(회복력).
 - atj 는 `ensureKISFileToken`(main.go)으로 **파일 토큰 강제** — env가 redis 라도 Redis 의존 없이 동작.
 
@@ -136,7 +136,7 @@ logging:
 국내계좌 시트는 **12컬럼**: 일자, 구분, 종목코드, 종목명, **섹터, 산업**, 수량, 단가, 금액,
 수수료, 손익금액, 수익률(%). 해외계좌 시트는 **17컬럼**(종목명 뒤 섹터/산업, 해외는 공란).
 - 종목코드: CSV에 없으면 KRX 마스터(`internal/symbol`)에서 조회.
-- 섹터/산업: 국내만 KIS 지수업종(`internal/bizcat`, 중분류/소분류)에서 조회. 해외 공란.
+- 섹터/산업: 국내만 KIS 조회(`internal/bizcat`, 섹터=지수업종 중분류 / 산업=표준산업분류)로 채움. 해외 공란.
 
 **기존 시트 마이그레이션**: 섹터/산업(또는 종목코드) 컬럼 도입 이전 포맷(10/15/9컬럼) 시트는
 헤더 불일치로 **경고 로그와 함께 스킵**됩니다(자동 변환 안 함). 시트를 삭제 후 재실행하거나
