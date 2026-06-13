@@ -101,9 +101,18 @@ func kisFetch() func(string) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		// 주의: 대분류(IdxBztpLclsCdName)는 "시가총액규모"라 업종이 아니다(예 "시가총액규모대").
-		// 실제 업종은 중분류(예 "전기,전자"), 소분류가 더 세부다.
-		// → 섹터=중분류, 산업=소분류.
-		return info.IdxBztpMclsCdName, info.IdxBztpSclsCdName, nil
+		sector, industry := pickSectorIndustry(info.IdxBztpMclsCdName, info.StdIdstClsfCdName)
+		return sector, industry, nil
 	}
+}
+
+// pickSectorIndustry 는 KIS 주식기본조회 업종 필드에서 섹터/산업을 선택한다.
+//
+//   - 섹터  = 지수업종 중분류(idx_bztp_mcls_cd_name, 예 "전기,전자"/"서비스업").
+//     대분류는 "시가총액규모"라 업종이 아니므로 미사용. 지수업종 미분류 종목/ETF 는 빈값.
+//   - 산업  = 표준산업분류(std_idst_clsf_cd_name, 예 "의료용 기기 제조업").
+//     지수업종(중/소분류)이 비는 일반 종목(클래시스·솔루엠 등)도 표준산업분류는 채워져
+//     커버리지가 넓다. (소분류 idx_bztp_scls_cd_name 은 중분류와 동일값이라 미사용.)
+func pickSectorIndustry(idxBztpMcls, stdIdstClsf string) (sector, industry string) {
+	return idxBztpMcls, stdIdstClsf
 }
