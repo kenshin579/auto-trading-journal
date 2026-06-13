@@ -39,6 +39,13 @@ func TestNormalizeCellValue(t *testing.T) {
 	assert.Equal(t, "75000", normalizeCellValue("75000"))
 }
 
+func TestKeyColsForGrid(t *testing.T) {
+	n, q, p := keyColsForGrid(false)
+	assert.Equal(t, [3]int{3, 6, 7}, [3]int{n, q, p})
+	n, q, p = keyColsForGrid(true)
+	assert.Equal(t, [3]int{4, 7, 8}, [3]int{n, q, p})
+}
+
 // TestKeyAgreement 는 그리드 셀에서 추출한 정규화 키가 model.Trade.DuplicateKey() 와
 // 동일한지 확인한다(중복 필터 동작의 핵심).
 func TestKeyAgreement(t *testing.T) {

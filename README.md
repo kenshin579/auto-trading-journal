@@ -13,6 +13,7 @@
 - **CSV 자동 파싱**: 증권사별 CSV 헤더를 분석하여 파서 자동 선택
 - **인코딩 자동 처리**: CP949(EUC-KR)/UTF-8 네이티브 디코딩 (별도 변환 불필요)
 - **다중 증권사 지원**: 미래에셋증권(국내/해외), 한국투자증권(국내)
+- **섹터/산업 열**: 국내 거래에 KIS 지수업종(중분류=섹터, 소분류=산업) 자동 표기 (해외 공란)
 - **중복 방지**: (날짜, 매매유형, 종목명, 수량, 단가) 5-tuple 기반 중복 감지
 - **대시보드**: 포트폴리오 요약, 월별 성과, 종목별 현황, 투자 지표, 매매 인사이트, 차트 자동 생성
 - **섹터 분류**: OpenAI 기반 종목 섹터 자동 분류 및 투자비중 분석
@@ -61,7 +62,8 @@ logging:
 |--------|------|
 | `GOOGLE_SPREADSHEET_ID` | Google Sheets 문서 ID |
 | `SERVICE_ACCOUNT_PATH` | 서비스 계정 키 파일 경로 |
-| `STOCK_DATA_OPENAI_API_KEY` | OpenAI API 키 (섹터 분류용, 선택) |
+| `STOCK_DATA_OPENAI_API_KEY` | OpenAI API 키 (대시보드 섹터집계용, 선택) |
+| `KOREA_INVESTMENT_API_KEY` / `_API_SECRET` / `_ACCOUNT_NO` | KIS API 인증 (국내 섹터/산업 열용, 선택). 미설정 시 섹터/산업 공란. atj 는 토큰을 파일 캐시(`~/.cache/auto-trading-journal/kis_token.json`)하므로 Redis 불필요 |
 
 ## 사용 방법
 
@@ -111,6 +113,7 @@ auto-trading-journal/
 │   ├── model/             # Trade 데이터 모델
 │   ├── parser/            # 파서 인터페이스 + 레지스트리 + 미래에셋/한국투자
 │   ├── symbol/            # KRX 종목 마스터 → 종목코드 보강
+│   ├── bizcat/            # KIS 지수업종 → 섹터/산업 (국내)
 │   ├── sheets/            # Google Sheets API v4 래퍼
 │   ├── writer/            # 시트 생성/중복필터/삽입/읽기
 │   ├── summary/           # 대시보드 생성 (요약/지표/인사이트/추이/차트)

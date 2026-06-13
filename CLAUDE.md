@@ -36,7 +36,8 @@ internal/
 ├── parser   - Parser 인터페이스 + registry(DetectParser) + mirae/hankook
 │             (readCSVRows 가 CP949/UTF-8 네이티브 디코딩)
 ├── symbol   - KRX .mst → 종목코드 (fwf + cp949, 7일 캐시)
-├── sector   - OpenAI 섹터 분류 (go-openai, JSON 캐시) — 요약 "섹터별 투자비중"용
+├── bizcat   - KIS 지수업종 → 섹터/산업 (SearchStockInfo, 영구 캐시) — 거래행 섹터/산업 열용
+├── sector   - OpenAI 섹터 분류 (go-openai, JSON 캐시) — 요약 "섹터별 투자비중"용 (bizcat과 별개)
 ├── sheets   - Google Sheets v4 래퍼 (값/포맷/색상/필터/차트 + 레이트리밋 재시도)
 ├── writer   - 시트 생성/중복필터/삽입 + ReadAllTrades
 └── summary  - 단일 "대시보드" 시트 (요약/지표/인사이트/추이/차트)
@@ -48,6 +49,7 @@ internal/
 2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
 3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
 4. **종목코드 보강**: 국내 거래 중 종목코드가 빈 항목을 KRX 마스터에서 조회해 채움
+4b. **섹터/산업 보강**: 국내 거래에 KIS 지수업종(중분류=섹터, 소분류=산업) 조회해 채움 (`internal/bizcat`, 해외는 공란)
 5. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
 6. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
 7. **데이터 삽입**: 신규 거래 일괄 삽입 + 숫자/통화 포맷 적용 (거래 시트 날짜별 배경색은 현재 미적용)
@@ -57,14 +59,19 @@ internal/
 
 **Trade** (dataclass):
 - 16개 필드: date, trade_type, stock_name, stock_code, quantity, price, amount, currency, exchange_rate, amount_krw, fee, tax, profit, profit_krw, profit_rate, account
-- `to_domestic_row()`: 국내 10컬럼 행 반환 (일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
-- `to_foreign_row()`: 해외 15컬럼 행 반환
+- `to_domestic_row()`: 국내 12컬럼 (일자, 구분, 종목코드, 종목명, **섹터, 산업**, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
+- `to_foreign_row()`: 해외 17컬럼 (종목명 뒤 **섹터/산업** 공란)
 - `duplicate_key()`: (date, trade_type, stock_name, quantity, price) 튜플
 
 ### Package Responsibilities
 
 **internal/model** (`trade.go`):
-- `Trade` struct (16필드) + `ToDomesticRow`(10컬럼)/`ToForeignRow`(15컬럼)/`ToSheetRow` + `DuplicateKey`(DupKey)
+- `Trade` struct (Sector/Industry 포함) + `ToDomesticRow`(12컬럼)/`ToForeignRow`(17컬럼)/`ToSheetRow` + `DuplicateKey`(DupKey; 섹터/산업 미포함)
+
+**internal/bizcat** (`resolver.go`):
+- KIS `Domestic.SearchStockInfo(code,"300")` → 섹터=지수업종 **중분류**(`IdxBztpMclsCdName`, 예 "전기,전자"), 산업=**소분류**(`IdxBztpSclsCdName`). ⚠️ 대분류는 "시가총액규모"라 미사용.
+- 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. KIS 키 없거나 실패 시 빈 값(회복력).
+- atj 는 `ensureKISFileToken`(main.go)으로 **파일 토큰 강제** — env가 redis 라도 Redis 의존 없이 동작.
 
 **internal/parser** (`parser.go`, `mirae.go`, `hankook.go`, `registry.go`):
 - `Parser` 인터페이스(Name/CanParse/Parse), `DetectParser`(헤더 기반 자동 선택, 순서 Mirae국내→Mirae해외→Hankook)
@@ -124,16 +131,16 @@ logging:
 
 시트 이름 = `{증권사 폴더명}_{CSV 파일명(확장자 제외)}`
 
-### 국내 시트 컬럼 (종목코드 추가)
+### 시트 컬럼 구조 (섹터/산업 포함)
 
-국내계좌 시트는 종목명 앞에 `종목코드` 컬럼을 포함한 **10컬럼** 구조입니다
-(일자, 구분, 종목코드, 종목명, 수량, 단가, 금액, 수수료, 손익금액, 수익률(%)).
-종목코드는 미래에셋 국내처럼 CSV에 코드가 없는 경우 KRX 공개 종목 마스터
-(`internal/symbol`)에서 종목명으로 조회해 채웁니다.
+국내계좌 시트는 **12컬럼**: 일자, 구분, 종목코드, 종목명, **섹터, 산업**, 수량, 단가, 금액,
+수수료, 손익금액, 수익률(%). 해외계좌 시트는 **17컬럼**(종목명 뒤 섹터/산업, 해외는 공란).
+- 종목코드: CSV에 없으면 KRX 마스터(`internal/symbol`)에서 조회.
+- 섹터/산업: 국내만 KIS 지수업종(`internal/bizcat`, 중분류/소분류)에서 조회. 해외 공란.
 
-**기존 9컬럼 시트 마이그레이션**: 종목코드 컬럼 도입 이전에 생성된 국내 시트는
-삭제 후 재실행하거나 D열에 `종목코드` 컬럼을 수동 삽입해야 합니다. 옛 포맷(9컬럼)
-시트는 실행 시 경고 로그와 함께 스킵됩니다.
+**기존 시트 마이그레이션**: 섹터/산업(또는 종목코드) 컬럼 도입 이전 포맷(10/15/9컬럼) 시트는
+헤더 불일치로 **경고 로그와 함께 스킵**됩니다(자동 변환 안 함). 시트를 삭제 후 재실행하거나
+종목명 뒤에 `섹터`,`산업` 컬럼을 수동 삽입하세요.
 
 ## Input File Format
 

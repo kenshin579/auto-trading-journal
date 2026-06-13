@@ -22,6 +22,8 @@ type Trade struct {
 	ProfitKRW    float64
 	ProfitRate   float64 // 퍼센트(14.68)
 	Account      string
+	Sector       string // 지수업종 대분류 (국내만; 해외 "")
+	Industry     string // 지수업종 중분류
 }
 
 // DupKey: (date, trade_type, stock_name, quantity_str, price_str)
@@ -39,15 +41,15 @@ func rate(p float64) float64 {
 	return p / 100
 }
 
-// ToDomesticRow: 국내 10컬럼
+// ToDomesticRow: 국내 12컬럼 (종목명 뒤 섹터/산업)
 func (t Trade) ToDomesticRow() []any {
-	return []any{t.Date, t.TradeType, t.StockCode, t.StockName,
+	return []any{t.Date, t.TradeType, t.StockCode, t.StockName, t.Sector, t.Industry,
 		t.Quantity, t.Price, t.Amount, t.Fee, t.Profit, rate(t.ProfitRate)}
 }
 
-// ToForeignRow: 해외 15컬럼
+// ToForeignRow: 해외 17컬럼 (종목명 뒤 섹터/산업; 해외는 공란)
 func (t Trade) ToForeignRow() []any {
-	return []any{t.Date, t.TradeType, t.Currency, t.StockCode, t.StockName,
+	return []any{t.Date, t.TradeType, t.Currency, t.StockCode, t.StockName, t.Sector, t.Industry,
 		t.Quantity, t.Price, t.Amount, t.ExchangeRate, t.AmountKRW,
 		t.Fee, t.Tax, t.Profit, t.ProfitKRW, rate(t.ProfitRate)}
 }

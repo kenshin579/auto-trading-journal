@@ -38,7 +38,7 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 		}
 		seen[normalized] = true
 
-		headerVals, err := w.client.GetValues(ctx, sheetName+"!A1:O1")
+		headerVals, err := w.client.GetValues(ctx, sheetName+"!A1:Q1")
 		if err != nil {
 			slog.Error("헤더 조회 실패", "sheet", sheetName, "err", err)
 			continue
@@ -54,9 +54,11 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 			isForeign = false
 		case headersEqual(headerRow, ForeignHeaders):
 			isForeign = true
-		case headersEqual(headerRow, OldDomesticHeadersV1):
-			slog.Warn("시트가 옛 9컬럼 포맷입니다. 종목코드 컬럼 추가를 위해 시트를 삭제 후 재실행하거나 "+
-				"D열에 '종목코드' 컬럼을 수동 삽입하세요. (이번 실행에서는 스킵)", "sheet", sheetName)
+		case headersEqual(headerRow, OldDomesticHeadersV2),
+			headersEqual(headerRow, OldForeignHeadersV1),
+			headersEqual(headerRow, OldDomesticHeadersV1):
+			slog.Warn("시트가 섹터/산업 추가 이전 포맷입니다. 시트를 삭제 후 재실행하거나 "+
+				"종목명 뒤에 '섹터','산업' 컬럼을 수동 삽입하세요. (이번 실행에서는 스킵)", "sheet", sheetName)
 			continue
 		default:
 			slog.Debug("시트 스킵(매매일지 헤더 불일치)", "sheet", sheetName)
@@ -79,7 +81,8 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 // readTradesFromSheet 는 개별 매매일지 시트에서 Trade 리스트를 반환한다.
 // (Python _read_trades_from_sheet) account 는 정규화된 시트 이름.
 func (w *Writer) readTradesFromSheet(ctx context.Context, sheetName string, isForeign bool, account string) []model.Trade {
-	grid, err := w.client.GetRawGridData(ctx, sheetName, "A2:O10000")
+	// 국내 12컬럼(A~L), 해외 17컬럼(A~Q) — 공통 범위 A2:Q10000 사용.
+	grid, err := w.client.GetRawGridData(ctx, sheetName, "A2:Q10000")
 	if err != nil {
 		slog.Error("시트 데이터 읽기 실패", "sheet", sheetName, "err", err)
 		return nil
@@ -88,9 +91,9 @@ func (w *Writer) readTradesFromSheet(ctx context.Context, sheetName string, isFo
 		return nil
 	}
 
-	minCols := 10
+	minCols := 12
 	if isForeign {
-		minCols = 15
+		minCols = 17
 	}
 
 	trades := make([]model.Trade, 0)
@@ -132,46 +135,46 @@ func gridRowToPlain(values []*gsheets.CellData, dateVal string) []interface{} {
 func rowToTrade(row []interface{}, isForeign bool, account string) model.Trade {
 	date := getStr(row, 0)
 	if isForeign {
-		// 해외: A~O (15컬럼) — 일자,구분,통화,종목코드,종목명,수량,단가,금액(외화),
-		//                       환율,금액(원화),수수료,세금,손익(외화),손익(원화),수익률
+		// 해외 17컬럼: 0일자 1구분 2통화 3종목코드 4종목명 5섹터 6산업 7수량 8단가
+		//              9금액(외화) 10환율 11금액(원화) 12수수료 13세금 14손익(외화) 15손익(원화) 16수익률
 		return model.Trade{
 			Date:         date,
 			TradeType:    getStr(row, 1),
 			Currency:     getStr(row, 2),
 			StockCode:    getCode(row, 3),
 			StockName:    getStr(row, 4),
-			Quantity:     getNum(row, 5),
-			Price:        getNum(row, 6),
-			Amount:       getNum(row, 7),
-			ExchangeRate: getNum(row, 8),
-			AmountKRW:    getNum(row, 9),
-			Fee:          getNum(row, 10),
-			Tax:          getNum(row, 11),
-			Profit:       getNum(row, 12),
-			ProfitKRW:    getNum(row, 13),
-			ProfitRate:   getNum(row, 14) * 100,
+			Quantity:     getNum(row, 7),
+			Price:        getNum(row, 8),
+			Amount:       getNum(row, 9),
+			ExchangeRate: getNum(row, 10),
+			AmountKRW:    getNum(row, 11),
+			Fee:          getNum(row, 12),
+			Tax:          getNum(row, 13),
+			Profit:       getNum(row, 14),
+			ProfitKRW:    getNum(row, 15),
+			ProfitRate:   getNum(row, 16) * 100,
 			Account:      account,
 		}
 	}
-	// 국내: A~J (10컬럼) — 일자,구분,종목코드,종목명,수량,단가,금액,수수료,손익,수익률
-	amount := getNum(row, 6)
-	profit := getNum(row, 8)
+	// 국내 12컬럼: 0일자 1구분 2종목코드 3종목명 4섹터 5산업 6수량 7단가 8금액 9수수료 10손익 11수익률
+	amount := getNum(row, 8)
+	profit := getNum(row, 10)
 	return model.Trade{
 		Date:         date,
 		TradeType:    getStr(row, 1),
 		StockCode:    getCode(row, 2),
 		StockName:    getStr(row, 3),
-		Quantity:     getNum(row, 4),
-		Price:        getNum(row, 5),
+		Quantity:     getNum(row, 6),
+		Price:        getNum(row, 7),
 		Amount:       amount,
 		Currency:     "KRW",
 		ExchangeRate: 1.0,
 		AmountKRW:    amount,
-		Fee:          getNum(row, 7),
+		Fee:          getNum(row, 9),
 		Tax:          0.0,
 		Profit:       profit,
 		ProfitKRW:    profit,
-		ProfitRate:   getNum(row, 9) * 100,
+		ProfitRate:   getNum(row, 11) * 100,
 		Account:      account,
 	}
 }
