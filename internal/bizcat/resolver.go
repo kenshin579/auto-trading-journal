@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 
 	kis "github.com/kenshin579/korea-investment-stock"
@@ -120,5 +121,10 @@ func kisFetch() func(string) (string, string, error) {
 //   - 산업  = search-stock-info 의 표준산업분류(std_idst_clsf_cd_name, 예 "의료용 기기 제조업").
 //     일반 종목은 채워지고 ETF 는 빈값.
 func extractSectorIndustry(price *domestic.Price, info *domestic.StockInfo) (sector, industry string) {
-	return price.BstpKorIsnm, info.StdIdstClsfCdName
+	sector = price.BstpKorIsnm
+	// ETF 는 "ETF(실물복제/수익증권)" 등 긴 라벨로 오므로 짧게 "ETF" 로 정규화.
+	if strings.HasPrefix(sector, "ETF") {
+		sector = "ETF"
+	}
+	return sector, info.StdIdstClsfCdName
 }
