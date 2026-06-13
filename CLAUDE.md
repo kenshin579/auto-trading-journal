@@ -14,6 +14,7 @@ Auto Trading Journal은 증권사별 CSV 파일을 파싱하여 구글 시트에
 # 실행 (config/config.yaml + env GOOGLE_SPREADSHEET_ID / SERVICE_ACCOUNT_PATH 필요)
 make run                 # = go run ./cmd/atj --log-level INFO
 make dry                 # 드라이런 (시트 미반영)
+make backfill-sectors    # 기존 국내 시트 행의 섹터/산업 열 일괄 채움(1회용)
 go run ./cmd/atj --dry-run --log-level DEBUG
 
 # 빌드 / 테스트
