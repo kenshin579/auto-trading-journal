@@ -71,7 +71,7 @@ internal/
 **internal/bizcat** (`resolver.go`):
 - 섹터 = `Domestic.InquirePrice(code)` 의 **업종 한글명**(`BstpKorIsnm`/bstp_kor_isnm, 예 "전기·전자"/"IT 서비스"/"의료·정밀기기"). 일반 종목 커버리지가 가장 넓고(지수업종 중분류는 대형주만 채워짐) moneyflow `sector_detail` 과 동일 소스. ETF 는 "ETF(실물복제/수익증권)" 라벨.
 - 산업 = `Domestic.SearchStockInfo(code,"300")` 의 **표준산업분류**(`StdIdstClsfCdName`, 예 "의료용 기기 제조업"). 일반 종목은 채워지고 ETF 는 공란. ⚠️ 지수업종(대/중/소분류)은 커버리지가 낮아 미사용.
-- 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**. (rate limit 페이싱은 향후 개선 대상.)
+- 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**. KIS 초당 제한(EGW00201) 회피를 위해 `WithRateLimit(kisCallsPerSec=4)` 로 호출을 페이싱하고, 같은 실행 내 실패 코드는 negative-cache(`failed`, 비영구)로 재조회를 막는다. 성공 결과는 `config/bizcat_cache.json` 에 영구 캐시(실행 간 유지).
 - 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. KIS 키 없거나 실패 시 빈 값(회복력).
 - atj 는 `ensureKISFileToken`(main.go)으로 **파일 토큰 강제** — env가 redis 라도 Redis 의존 없이 동작.
 

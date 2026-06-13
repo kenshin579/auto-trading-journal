@@ -35,6 +35,21 @@ func TestResolve_MissCallsFetchAndCaches(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
+// 같은 실행 내에서 한 번 실패한 코드는 재조회하지 않는다(negative cache).
+// (영구 캐시엔 저장 안 함 — 다음 실행에는 다시 시도해야 하므로.)
+func TestResolve_NegativeCacheSkipsRefetchOnError(t *testing.T) {
+	calls := 0
+	r := &Resolver{cache: map[string]entry{}, fetch: func(string) (string, string, error) {
+		calls++
+		return "", "", assert.AnError
+	}}
+	s, i := r.Resolve("999999") // 1회차: fetch 실패
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	r.Resolve("999999") // 2회차: negative cache 로 재조회 안 함
+	assert.Equal(t, 1, calls, "실패 코드는 같은 실행 내 1회만 호출")
+}
+
 func TestResolve_EmptyCodeOrErrorReturnsBlank(t *testing.T) {
 	r := &Resolver{cache: map[string]entry{}, fetch: func(string) (string, string, error) { return "", "", assert.AnError }}
 	s, i := r.Resolve("")

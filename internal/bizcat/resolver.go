@@ -22,6 +22,7 @@ type entry struct {
 type Resolver struct {
 	mu        sync.Mutex
 	cache     map[string]entry
+	failed    map[string]bool // 이번 실행에서 실패한 코드(negative cache, 비영구)
 	cachePath string
 	fetch     func(code string) (sector, industry string, err error)
 	dirty     bool
@@ -54,11 +55,18 @@ func (r *Resolver) Resolve(code string) (string, string) {
 	if e, ok := r.cache[code]; ok {
 		return e.Sector, e.Industry
 	}
+	if r.failed[code] {
+		return "", "" // 이번 실행에서 이미 실패 → 재조회 안 함
+	}
 	if r.fetch == nil {
 		r.fetch = kisFetch()
 	}
 	sector, industry, err := r.fetch(code)
 	if err != nil {
+		if r.failed == nil {
+			r.failed = map[string]bool{}
+		}
+		r.failed[code] = true
 		slog.Warn("업종 조회 실패, 빈 값 처리", "code", code, "err", err)
 		return "", ""
 	}
@@ -92,8 +100,13 @@ func (r *Resolver) saveCache() error {
 	return enc.Encode(r.cache)
 }
 
+// kisCallsPerSec 는 bizcat 업종 조회의 KIS 호출 빈도 상한.
+// 코드당 2회 호출(InquirePrice + SearchStockInfo)이라 SDK 기본(15/s)에선 초당 제한
+// (EGW00201)에 걸린다. 보수적으로 낮춰 한 실행에 빠짐없이 채워지도록 한다.
+const kisCallsPerSec = 4
+
 func kisFetch() func(string) (string, string, error) {
-	client, err := kis.NewClientFromEnv()
+	client, err := kis.NewClientFromEnv(kis.WithRateLimit(kisCallsPerSec))
 	if err != nil {
 		slog.Warn("KIS 클라이언트 생성 실패, 업종 보강 비활성화", "err", err)
 		return func(string) (string, string, error) { return "", "", nil }
