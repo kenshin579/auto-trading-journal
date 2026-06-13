@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kenshin579/korea-investment-stock/domestic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,22 +45,31 @@ func TestResolve_EmptyCodeOrErrorReturnsBlank(t *testing.T) {
 	assert.Equal(t, "", i)
 }
 
-// 섹터 = 지수업종 중분류, 산업 = 표준산업분류(일반 종목 커버리지가 넓음).
-// 지수업종이 비어도(클래시스/솔루엠 등) 표준산업분류로 산업은 채워져야 한다.
-func TestPickSectorIndustry(t *testing.T) {
+// 섹터 = InquirePrice 업종 한글명(bstp_kor_isnm), 산업 = 표준산업분류(std_idst_clsf_cd_name).
+// bstp_kor_isnm 은 지수업종이 비는 일반 종목(클래시스 등)도 채워져 커버리지가 넓다.
+func TestExtractSectorIndustry(t *testing.T) {
 	// 대형주: 둘 다 채워짐
-	s, i := pickSectorIndustry("전기,전자", "통신 및 방송 장비 제조업")
-	assert.Equal(t, "전기,전자", s)
-	assert.Equal(t, "통신 및 방송 장비 제조업", i)
+	s, i := extractSectorIndustry(
+		&domestic.Price{BstpKorIsnm: "전기·전자"},
+		&domestic.StockInfo{StdIdstClsfCdName: "반도체 제조업"},
+	)
+	assert.Equal(t, "전기·전자", s)
+	assert.Equal(t, "반도체 제조업", i)
 
-	// 지수업종 미분류 일반 종목(클래시스): 섹터 빈값이지만 산업은 표준산업분류로 채워짐
-	s, i = pickSectorIndustry("", "의료용 기기 제조업")
-	assert.Equal(t, "", s)
+	// 지수업종 미분류 일반 종목(클래시스)도 bstp_kor_isnm 으로 섹터가 채워짐
+	s, i = extractSectorIndustry(
+		&domestic.Price{BstpKorIsnm: "의료·정밀기기"},
+		&domestic.StockInfo{StdIdstClsfCdName: "의료용 기기 제조업"},
+	)
+	assert.Equal(t, "의료·정밀기기", s)
 	assert.Equal(t, "의료용 기기 제조업", i)
 
-	// ETF: 둘 다 빈값
-	s, i = pickSectorIndustry("", "")
-	assert.Equal(t, "", s)
+	// ETF: bstp_kor_isnm 은 "ETF(...)", 표준산업분류는 빈값
+	s, i = extractSectorIndustry(
+		&domestic.Price{BstpKorIsnm: "ETF(실물복제/수익증권)"},
+		&domestic.StockInfo{},
+	)
+	assert.Equal(t, "ETF(실물복제/수익증권)", s)
 	assert.Equal(t, "", i)
 }
 

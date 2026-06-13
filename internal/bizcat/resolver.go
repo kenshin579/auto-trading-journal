@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	kis "github.com/kenshin579/korea-investment-stock"
+	"github.com/kenshin579/korea-investment-stock/domestic"
 )
 
 type entry struct {
@@ -97,22 +98,27 @@ func kisFetch() func(string) (string, string, error) {
 		return func(string) (string, string, error) { return "", "", nil }
 	}
 	return func(code string) (string, string, error) {
-		info, err := client.Domestic.SearchStockInfo(context.Background(), code, "300")
+		ctx := context.Background()
+		price, err := client.Domestic.InquirePrice(ctx, code)
 		if err != nil {
 			return "", "", err
 		}
-		sector, industry := pickSectorIndustry(info.IdxBztpMclsCdName, info.StdIdstClsfCdName)
+		info, err := client.Domestic.SearchStockInfo(ctx, code, "300")
+		if err != nil {
+			return "", "", err
+		}
+		sector, industry := extractSectorIndustry(price, info)
 		return sector, industry, nil
 	}
 }
 
-// pickSectorIndustry 는 KIS 주식기본조회 업종 필드에서 섹터/산업을 선택한다.
+// extractSectorIndustry 는 KIS 응답에서 섹터/산업을 추출한다.
 //
-//   - 섹터  = 지수업종 중분류(idx_bztp_mcls_cd_name, 예 "전기,전자"/"서비스업").
-//     대분류는 "시가총액규모"라 업종이 아니므로 미사용. 지수업종 미분류 종목/ETF 는 빈값.
-//   - 산업  = 표준산업분류(std_idst_clsf_cd_name, 예 "의료용 기기 제조업").
-//     지수업종(중/소분류)이 비는 일반 종목(클래시스·솔루엠 등)도 표준산업분류는 채워져
-//     커버리지가 넓다. (소분류 idx_bztp_scls_cd_name 은 중분류와 동일값이라 미사용.)
-func pickSectorIndustry(idxBztpMcls, stdIdstClsf string) (sector, industry string) {
-	return idxBztpMcls, stdIdstClsf
+//   - 섹터  = InquirePrice 의 업종 한글명(bstp_kor_isnm, 예 "전기·전자"/"IT 서비스"/"의료·정밀기기").
+//     지수업종 중분류가 비는 일반 종목(클래시스·솔루엠 등)도 채워져 커버리지가 가장 넓다.
+//     ETF 는 "ETF(실물복제/수익증권)" 라벨이 들어온다. moneyflow 의 sector_detail 과 동일 소스.
+//   - 산업  = search-stock-info 의 표준산업분류(std_idst_clsf_cd_name, 예 "의료용 기기 제조업").
+//     일반 종목은 채워지고 ETF 는 빈값.
+func extractSectorIndustry(price *domestic.Price, info *domestic.StockInfo) (sector, industry string) {
+	return price.BstpKorIsnm, info.StdIdstClsfCdName
 }
