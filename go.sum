@@ -39,8 +39,8 @@ github.com/googleapis/gax-go/v2 v2.22.0 h1:PjIWBpgGIVKGoCXuiCoP64altEJCj3/Ei+kSU
 github.com/googleapis/gax-go/v2 v2.22.0/go.mod h1:irWBbALSr0Sk3qlqb9SyJ1h68WjgeFuiOzI4Rqw5+aY=
 github.com/jarcoal/httpmock v1.4.1 h1:0Ju+VCFuARfFlhVXFc2HxlcQkfB+Xq12/EotHko+x2A=
 github.com/jarcoal/httpmock v1.4.1/go.mod h1:ftW1xULwo+j0R0JJkJIIi7UKigZUXCLLanykgjwBXL0=
-github.com/kenshin579/korea-investment-stock v1.27.0 h1:qul+mSO6FiLgDawWOl8B2rzwU4J3siuoj/c32sUPq0w=
-github.com/kenshin579/korea-investment-stock v1.27.0/go.mod h1:ApfNXi+Pe6HQt6E0JpsfLpVgTwVJFofj3OpCeKO+qh0=
+github.com/kenshin579/korea-investment-stock v1.28.0 h1:L8I4bM1iBOLWvTS4YptwrWtADPLXV439rlwJmGs9/00=
+github.com/kenshin579/korea-investment-stock v1.28.0/go.mod h1:ApfNXi+Pe6HQt6E0JpsfLpVgTwVJFofj3OpCeKO+qh0=
 github.com/klauspost/cpuid/v2 v2.2.10 h1:tBs3QSyvjDyFTq3uoc/9xFpCuOsJQFNPiAhYdw2skhE=
 github.com/klauspost/cpuid/v2 v2.2.10/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
