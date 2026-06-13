@@ -50,6 +50,10 @@ func (w *Writer) EnsureSheetExists(ctx context.Context, sheetName string, isFore
 	}
 	for _, n := range names {
 		if n == sheetName {
+			// 구 포맷이면 신 포맷으로 자동 마이그레이션(섹터/산업 열 삽입) 후 진행.
+			if err := w.ensureNewFormat(ctx, sheetName); err != nil {
+				return false, err
+			}
 			if err := w.ApplySheetFormatting(ctx, sheetName, isForeign); err != nil {
 				return false, err
 			}
