@@ -64,12 +64,12 @@ func TestExtractSectorIndustry(t *testing.T) {
 	assert.Equal(t, "의료·정밀기기", s)
 	assert.Equal(t, "의료용 기기 제조업", i)
 
-	// ETF: bstp_kor_isnm 은 "ETF(...)", 표준산업분류는 빈값
+	// ETF: bstp_kor_isnm "ETF(실물복제/수익증권)" → 섹터는 짧게 "ETF" 로 정규화, 산업 빈값
 	s, i = extractSectorIndustry(
 		&domestic.Price{BstpKorIsnm: "ETF(실물복제/수익증권)"},
 		&domestic.StockInfo{},
 	)
-	assert.Equal(t, "ETF(실물복제/수익증권)", s)
+	assert.Equal(t, "ETF", s)
 	assert.Equal(t, "", i)
 }
 
