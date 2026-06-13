@@ -253,6 +253,16 @@ func (p *processor) processFile(ctx context.Context, f csvFile) ([]model.Trade, 
 }
 
 // run 은 메인 실행: CSV 스캔 → 파일별 처리 → 대시보드 갱신. (Python run)
+// backfillSectors 는 기존 국내 시트 행의 섹터/산업 열을 일괄 채운다(1회용).
+func (p *processor) backfillSectors(ctx context.Context) error {
+	slog.Info("=== 섹터/산업 백필 시작 (기존 행 갱신) ===")
+	defer slog.Info("스크립트 실행 완료")
+	if p.bizcatStore != nil {
+		defer p.bizcatStore.Save()
+	}
+	return p.writer.BackfillSectors(ctx, p.bizcatRes.Resolve)
+}
+
 func (p *processor) run(ctx context.Context) error {
 	slog.Info("=== 매매일지 구글 시트 입력 시작 (v2) ===")
 	defer slog.Info("스크립트 실행 완료")
@@ -338,6 +348,7 @@ func ensureKISFileToken() {
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "실제 데이터 입력 없이 시뮬레이션만 수행합니다.")
+	backfill := flag.Bool("backfill-sectors", false, "기존 국내 시트 행의 섹터/산업 열을 일괄 채웁니다(1회용).")
 	logLevel := flag.String("log-level", "INFO", "로그 레벨을 설정합니다 (DEBUG/INFO/WARNING/ERROR, 기본값: INFO)")
 	flag.Parse()
 
@@ -363,6 +374,14 @@ func main() {
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
+	}
+
+	if *backfill {
+		if err := p.backfillSectors(ctx); err != nil {
+			slog.Error(err.Error())
+			os.Exit(1)
+		}
+		return
 	}
 
 	if err := p.run(ctx); err != nil {
