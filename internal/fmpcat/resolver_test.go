@@ -102,6 +102,20 @@ func TestResolve_ErrorNegativeCache(t *testing.T) {
 	assert.Equal(t, 1, calls, "실패 심볼은 같은 실행 내 1회만")
 }
 
+// 빈 결과(미커버/미지원)는 파일에 영구화하지 않는다(노이즈 방지).
+func TestSaveCache_OmitsEmptyEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fmpcat_cache.json")
+	r := &Resolver{cache: map[string]entry{
+		"AAPL":   {Sector: "Technology", Industry: "Consumer Electronics"},
+		"1321.T": {Sector: "", Industry: ""},
+	}, cachePath: path}
+	require.NoError(t, r.saveCache())
+	data, _ := os.ReadFile(path)
+	assert.Contains(t, string(data), "AAPL")
+	assert.NotContains(t, string(data), "1321.T", "빈 항목은 파일에 안 씀")
+}
+
 func TestCacheSaveLoad_Roundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fmpcat_cache.json")

@@ -114,10 +114,19 @@ func (r *Resolver) saveCache() error {
 		return err
 	}
 	defer f.Close()
+	// 빈 결과(미커버/미지원 통화)는 파일에 영구화하지 않는다(노이즈 방지).
+	// 인메모리 캐시엔 남아 같은 실행 내 재조회는 막고, 다음 실행에 1회 재시도된다.
+	out := make(map[string]entry, len(r.cache))
+	for k, v := range r.cache {
+		if v.Sector == "" && v.Industry == "" {
+			continue
+		}
+		out[k] = v
+	}
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	return enc.Encode(r.cache)
+	return enc.Encode(out)
 }
 
 func fmpFetch() func(string) (string, string, error) {
