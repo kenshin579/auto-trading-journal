@@ -28,6 +28,16 @@ type countrySectorGroup struct {
 	Rows     []countrySectorRow // 매수금액 내림차순
 }
 
+// sectorKey 는 집계 라벨을 정한다. ETF 는 한 덩어리로 뭉치지 않도록 산업(OpenAI category)으로
+// "ETF·{category}" 세분화한다(예 "ETF·반도체"/"ETF·미국주식"). 산업이 빈 미분류 ETF 는 "ETF".
+// 일반 종목은 섹터(KIS 업종 / FMP 영문) 그대로.
+func sectorKey(sector, industry string) string {
+	if sector == "ETF" && industry != "" {
+		return "ETF·" + industry
+	}
+	return sector
+}
+
 // countryLabel 은 통화 코드를 국가 라벨로 바꾼다. 미정의 통화는 코드 그대로.
 func countryLabel(currency string) string {
 	switch currency {
@@ -65,21 +75,22 @@ func countrySectorGroups(trades []model.Trade) []countrySectorGroup {
 	type agg struct {
 		buy, sell float64
 	}
-	// currency -> sector -> agg
+	// currency -> sectorKey -> agg
 	byCur := map[string]map[string]*agg{}
 	for _, t := range trades {
 		if t.Sector == "" {
 			continue
 		}
+		key := sectorKey(t.Sector, t.Industry)
 		sectors, ok := byCur[t.Currency]
 		if !ok {
 			sectors = map[string]*agg{}
 			byCur[t.Currency] = sectors
 		}
-		a := sectors[t.Sector]
+		a := sectors[key]
 		if a == nil {
 			a = &agg{}
-			sectors[t.Sector] = a
+			sectors[key] = a
 		}
 		switch t.TradeType {
 		case "매수":
