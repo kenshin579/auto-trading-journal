@@ -197,6 +197,19 @@ func (g *Generator) createCharts(ctx context.Context, trendStart, trendEnd int) 
 		))
 	}
 
+	// 차트 7+: 나라별 섹터 비중 (Pie, 국가마다 1개). W열(22)=섹터, X열(23)=매수금액.
+	for i, cp := range g.countrySectorPies {
+		if !cp.rng.ok {
+			continue
+		}
+		specs = append(specs, buildPieChartSpec(
+			sheetID, cp.title,
+			22, 23,
+			cp.rng.start-1, cp.rng.end,
+			chartRowSpacing*4+i*chartRowSpacing, chartColStart, 450, 370,
+		))
+	}
+
 	if len(specs) > 0 {
 		if err := g.client.AddCharts(ctx, specs); err != nil {
 			return err

@@ -48,8 +48,9 @@ type Generator struct {
 	pendingRequests  []*gsheets.Request // 포맷/색상 요청 누적 (#57 1회 batchUpdate)
 
 	// 차트가 참조할 데이터 범위 (start,end 1-based, ok=true 일 때 유효).
-	pieDataRange        rowRange // 파이 차트용 데이터 (계좌별 투자비중)
-	tradeCountDataRange rowRange // 월별 매수/매도 건수·금액
+	pieDataRange        rowRange           // 파이 차트용 데이터 (계좌별 투자비중)
+	tradeCountDataRange rowRange           // 월별 매수/매도 건수·금액
+	countrySectorPies   []countrySectorPie // 국가별 섹터 비중 pie (W:X 헬퍼)
 }
 
 // rowRange 는 차트가 참조할 행 범위 (1-based, inclusive). ok=false 면 데이터 없음.
@@ -107,11 +108,17 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 	if currentRow, err = g.writeStockSummary(ctx, trades, currentRow); err != nil {
 		return err
 	}
+	stockEnd := currentRow // 종목별 현황 끝(나라별 섹션 추가 전 — 종목 포맷 범위 보존)
+
+	currentRow++ // 빈 행
+	if currentRow, err = g.writeCountrySectorWeight(ctx, trades, currentRow); err != nil {
+		return err
+	}
 
 	// 포맷/색상 요청을 pendingRequests 에 수집. (Python generate_all py:69-73)
 	g.collectHeaderColors(monthlyStart, trendStart, stockStart)
 	g.collectDashboardFormats(monthlyStart, metricsStart, insightsStart,
-		trendStart, stockStart, currentRow)
+		trendStart, stockStart, stockEnd)
 
 	// 차트용 거래건수 데이터 작성 (포맷 요청도 수집됨). (Python py:76)
 	if err := g.writeTradeCountData(ctx, trades); err != nil {

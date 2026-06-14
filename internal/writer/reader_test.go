@@ -12,6 +12,8 @@ func TestRowToTradeDomestic_12cols(t *testing.T) {
 	tr := rowToTrade(row, false, "미래에셋증권_국내계좌")
 	assert.Equal(t, "삼성전자", tr.StockName)
 	assert.Equal(t, "005930", tr.StockCode)
+	assert.Equal(t, "전기·전자", tr.Sector)
+	assert.Equal(t, "반도체", tr.Industry)
 	assert.Equal(t, 10.0, tr.Quantity)
 	assert.Equal(t, 75000.0, tr.Price)
 	assert.InDelta(t, 7.14, tr.ProfitRate, 0.01)
@@ -37,11 +39,13 @@ func TestRowToTradeDomesticFloat(t *testing.T) {
 }
 
 func TestRowToTradeForeign_17cols(t *testing.T) {
-	row := []interface{}{"2026-03-15", "매도", "USD", "AAPL", "Apple", "", "",
+	row := []interface{}{"2026-03-15", "매도", "USD", "AAPL", "Apple", "Technology", "Consumer Electronics",
 		"5", "182", "910", "1365", "1241650", "910", "150", "32.5", "46700", "0.0371"}
 	tr := rowToTrade(row, true, "미래에셋증권_해외계좌")
 	assert.Equal(t, "AAPL", tr.StockCode)
 	assert.Equal(t, "Apple", tr.StockName)
+	assert.Equal(t, "Technology", tr.Sector)
+	assert.Equal(t, "Consumer Electronics", tr.Industry)
 	assert.Equal(t, 5.0, tr.Quantity)
 	assert.Equal(t, 46700.0, tr.ProfitKRW)
 	assert.InDelta(t, 3.71, tr.ProfitRate, 0.01)
