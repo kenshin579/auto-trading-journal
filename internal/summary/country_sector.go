@@ -154,11 +154,13 @@ func (g *Generator) writeCountrySectorWeight(ctx context.Context, trades []model
 	var countryHeaderOffsets []int // 국가 헤더 행 0-based 오프셋(색상용)
 	g.countrySectorPies = nil
 
+	// 차트 소스 데이터(W:X)는 맨 위 1행이 설명 헤더라 데이터는 startRow+1 부터 시작.
+	helperDataTop := startRow + 1
 	for _, grp := range groups {
 		countryHeaderOffsets = append(countryHeaderOffsets, len(rows))
 		rows = append(rows, []any{"▸ " + grp.Country, "", "", "", ""})
 		rows = append(rows, []any{"섹터", "매수금액", "매도금액", "순매수", "비중(%)"})
-		helperStart := startRow + len(pieHelper)
+		helperStart := helperDataTop + len(pieHelper)
 		for _, r := range grp.Rows {
 			rows = append(rows, []any{"  " + r.Sector, r.Buy, r.Sell, r.Net, r.Weight})
 			pieHelper = append(pieHelper, []any{r.Sector, r.Buy})
@@ -166,7 +168,7 @@ func (g *Generator) writeCountrySectorWeight(ctx context.Context, trades []model
 		if len(grp.Rows) > 0 {
 			g.countrySectorPies = append(g.countrySectorPies, countrySectorPie{
 				title: grp.Country + " 섹터 비중",
-				rng:   rowRange{start: helperStart, end: startRow + len(pieHelper) - 1, ok: true},
+				rng:   rowRange{start: helperStart, end: helperDataTop + len(pieHelper) - 1, ok: true},
 			})
 		}
 	}
@@ -177,10 +179,15 @@ func (g *Generator) writeCountrySectorWeight(ctx context.Context, trades []model
 		return 0, err
 	}
 	if len(pieHelper) > 0 {
-		hRng := fmt.Sprintf("%s!W%d:X%d", DashboardSheet, startRow, startRow+len(pieHelper)-1)
-		if err := g.client.UpdateCells(ctx, hRng, pieHelper); err != nil {
+		// 맨 위 설명 헤더 + (섹터, 매수금액). 매수금액(X열)은 통화 포맷.
+		helperRows := append([][]any{{"[차트데이터] 나라별 섹터 비중", "매수금액"}}, pieHelper...)
+		hEnd := startRow + len(helperRows) - 1
+		hRng := fmt.Sprintf("%s!W%d:X%d", DashboardSheet, startRow, hEnd)
+		if err := g.client.UpdateCells(ctx, hRng, helperRows); err != nil {
 			return 0, err
 		}
+		g.pendingRequests = append(g.pendingRequests, sheets.BuildNumberFormatRequests(
+			g.dashboardSheetID, []sheets.ColumnFormat{{Col: 24, Pattern: "₩#,##0"}}, helperDataTop, hEnd)...)
 	}
 
 	g.collectCountrySectorFormats(startRow, endRow, countryHeaderOffsets)
