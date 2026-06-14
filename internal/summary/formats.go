@@ -47,7 +47,7 @@ func (g *Generator) collectHeaderColors(monthlyStart, trendStart, stockStart int
 // collectDashboardFormats 는 대시보드 숫자 포맷 요청을 pendingRequests 에 수집한다.
 // (Python _collect_dashboard_formats, py:708-777)
 func (g *Generator) collectDashboardFormats(monthlyStart, metricsStart, insightsStart,
-	trendStart, stockStart, totalRows int) {
+	trendStart, trendEnd, stockStart, totalRows int) {
 	_ = insightsStart // 섹션 4/5 는 collectMetricsFormats 에서 행별 처리.
 	sid := g.dashboardSheetID
 	build := sheets.BuildNumberFormatRequests
@@ -78,8 +78,9 @@ func (g *Generator) collectDashboardFormats(monthlyStart, metricsStart, insights
 			build(sid, monthlyFormats, monthlyStart+1, monthlyDataEnd)...)
 	}
 
-	// 섹션 6: 월별 성과 추이 (trend_start+1 ~ stock_start-2).
-	trendDataEnd := stockStart - 2
+	// 섹션 6: 월별 성과 추이 (trend_start+1 ~ trend_end-1).
+	// (나라별 섹터 섹션이 추이와 종목별 사이에 끼므로 stockStart 로 추정하지 않고 trendEnd 사용.)
+	trendDataEnd := trendEnd - 1
 	if trendDataEnd > trendStart {
 		trendFormats := []sheets.ColumnFormat{
 			{Col: 2, Pattern: "#,##0"},                  // B: 매도건수
