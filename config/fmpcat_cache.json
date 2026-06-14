@@ -1,0 +1,418 @@
+{
+  "1321.T": {
+    "sector": "",
+    "industry": ""
+  },
+  "1489.T": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Income"
+  },
+  "AAPL": {
+    "sector": "Technology",
+    "industry": "Consumer Electronics"
+  },
+  "ADC": {
+    "sector": "Real Estate",
+    "industry": "REIT - Retail"
+  },
+  "AIG": {
+    "sector": "Financial Services",
+    "industry": "Insurance - Diversified"
+  },
+  "ALLY": {
+    "sector": "Financial Services",
+    "industry": "Financial - Credit Services"
+  },
+  "AMD": {
+    "sector": "Technology",
+    "industry": "Semiconductors"
+  },
+  "AMT": {
+    "sector": "Real Estate",
+    "industry": "REIT - Specialty"
+  },
+  "AMZN": {
+    "sector": "Consumer Cyclical",
+    "industry": "Specialty Retail"
+  },
+  "ANET": {
+    "sector": "Technology",
+    "industry": "Computer Hardware"
+  },
+  "APLE": {
+    "sector": "Real Estate",
+    "industry": "REIT - Hotel & Motel"
+  },
+  "APP": {
+    "sector": "Technology",
+    "industry": "Software - Application"
+  },
+  "ARKK": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "ARKX": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "AVGO": {
+    "sector": "Technology",
+    "industry": "Semiconductors"
+  },
+  "AXP": {
+    "sector": "Financial Services",
+    "industry": "Financial - Credit Services"
+  },
+  "B": {
+    "sector": "Basic Materials",
+    "industry": "Gold"
+  },
+  "BAC": {
+    "sector": "Financial Services",
+    "industry": "Banks - Diversified"
+  },
+  "BBAI": {
+    "sector": "Technology",
+    "industry": "Information Technology Services"
+  },
+  "BN": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "BOTZ": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "BTI": {
+    "sector": "Consumer Defensive",
+    "industry": "Tobacco"
+  },
+  "BXSL": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "C": {
+    "sector": "Financial Services",
+    "industry": "Banks - Diversified"
+  },
+  "CIBR": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "COPX": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "CPNG": {
+    "sector": "Consumer Cyclical",
+    "industry": "Specialty Retail"
+  },
+  "CPRT": {
+    "sector": "Industrials",
+    "industry": "Specialty Business Services"
+  },
+  "CRCL": {
+    "sector": "Financial Services",
+    "industry": "Financial - Capital Markets"
+  },
+  "CSCO": {
+    "sector": "Technology",
+    "industry": "Communication Equipment"
+  },
+  "CUBE": {
+    "sector": "Real Estate",
+    "industry": "REIT - Industrial"
+  },
+  "CVS": {
+    "sector": "Healthcare",
+    "industry": "Medical - Healthcare Plans"
+  },
+  "CVX": {
+    "sector": "Energy",
+    "industry": "Oil & Gas Integrated"
+  },
+  "DELL": {
+    "sector": "Technology",
+    "industry": "Computer Hardware"
+  },
+  "DGRO": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Income"
+  },
+  "DIVO": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Income"
+  },
+  "DLR": {
+    "sector": "Real Estate",
+    "industry": "REIT - Specialty"
+  },
+  "FIGR": {
+    "sector": "Financial Services",
+    "industry": "Financial - Capital Markets"
+  },
+  "FORM": {
+    "sector": "Technology",
+    "industry": "Semiconductors"
+  },
+  "GLDM": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "HOOD": {
+    "sector": "Financial Services",
+    "industry": "Financial - Capital Markets"
+  },
+  "HPQ": {
+    "sector": "Technology",
+    "industry": "Computer Hardware"
+  },
+  "HTGC": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "IEF": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Bonds"
+  },
+  "INDA": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "IREN": {
+    "sector": "Financial Services",
+    "industry": "Financial - Capital Markets"
+  },
+  "ISRG": {
+    "sector": "Healthcare",
+    "industry": "Medical - Devices"
+  },
+  "JEPI": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Income"
+  },
+  "JEPQ": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Income"
+  },
+  "KO": {
+    "sector": "Consumer Defensive",
+    "industry": "Beverages - Non-Alcoholic"
+  },
+  "KR": {
+    "sector": "Consumer Defensive",
+    "industry": "Grocery Stores"
+  },
+  "MAGS": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "MAIN": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "META": {
+    "sector": "Communication Services",
+    "industry": "Internet Content & Information"
+  },
+  "MO": {
+    "sector": "Consumer Defensive",
+    "industry": "Tobacco"
+  },
+  "MRVL": {
+    "sector": "Technology",
+    "industry": "Semiconductors"
+  },
+  "NEE": {
+    "sector": "Utilities",
+    "industry": "Regulated Electric"
+  },
+  "NFLX": {
+    "sector": "Communication Services",
+    "industry": "Entertainment"
+  },
+  "NKE": {
+    "sector": "Consumer Cyclical",
+    "industry": "Apparel - Footwear & Accessories"
+  },
+  "NU": {
+    "sector": "Financial Services",
+    "industry": "Banks - Diversified"
+  },
+  "NVDA": {
+    "sector": "Technology",
+    "industry": "Semiconductors"
+  },
+  "O": {
+    "sector": "Real Estate",
+    "industry": "REIT - Retail"
+  },
+  "OHI": {
+    "sector": "Real Estate",
+    "industry": "REIT - Healthcare Facilities"
+  },
+  "OKE": {
+    "sector": "Energy",
+    "industry": "Oil & Gas Midstream"
+  },
+  "ORCL": {
+    "sector": "Technology",
+    "industry": "Software - Infrastructure"
+  },
+  "OZEM": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "PANW": {
+    "sector": "Technology",
+    "industry": "Software - Infrastructure"
+  },
+  "PAVE": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "PCG": {
+    "sector": "Utilities",
+    "industry": "Regulated Electric"
+  },
+  "PFE": {
+    "sector": "Healthcare",
+    "industry": "Drug Manufacturers - General"
+  },
+  "PLTR": {
+    "sector": "Technology",
+    "industry": "Software - Infrastructure"
+  },
+  "QCOM": {
+    "sector": "Technology",
+    "industry": "Semiconductors"
+  },
+  "QQQM": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "REMX": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "RSG": {
+    "sector": "Industrials",
+    "industry": "Waste Management"
+  },
+  "SCHD": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Income"
+  },
+  "SGOV": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Bonds"
+  },
+  "SHLD": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "SIL": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "SMR": {
+    "sector": "Utilities",
+    "industry": "Renewable Utilities"
+  },
+  "SOXX": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "SPYM": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "STAG": {
+    "sector": "Real Estate",
+    "industry": "REIT - Industrial"
+  },
+  "T": {
+    "sector": "Communication Services",
+    "industry": "Telecommunications Services"
+  },
+  "TEM": {
+    "sector": "Healthcare",
+    "industry": "Medical - Healthcare Information Services"
+  },
+  "TLT": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Bonds"
+  },
+  "TOST": {
+    "sector": "Technology",
+    "industry": "Software - Infrastructure"
+  },
+  "TSLA": {
+    "sector": "Consumer Cyclical",
+    "industry": "Auto - Manufacturers"
+  },
+  "URA": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "V": {
+    "sector": "Financial Services",
+    "industry": "Financial - Credit Services"
+  },
+  "VNQ": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "VRT": {
+    "sector": "Industrials",
+    "industry": "Electrical Equipment & Parts"
+  },
+  "VXUS": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Global"
+  },
+  "VZ": {
+    "sector": "Communication Services",
+    "industry": "Telecommunications Services"
+  },
+  "WFC": {
+    "sector": "Financial Services",
+    "industry": "Banks - Diversified"
+  },
+  "XLB": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XLC": {
+    "sector": "Financial Services",
+    "industry": "Asset Management - Bonds"
+  },
+  "XLE": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XLF": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XLP": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XLRE": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XLU": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XLY": {
+    "sector": "Financial Services",
+    "industry": "Asset Management"
+  },
+  "XOM": {
+    "sector": "Energy",
+    "industry": "Oil & Gas Integrated"
+  }
+}
