@@ -91,25 +91,27 @@ func TestExtractSectorIndustry(t *testing.T) {
 	assert.Equal(t, "반도체", i)
 }
 
-// resolveETFIndustry: 코드 분류(≠9999)는 KRX 분류명, 9999 는 분류기 결과, 분류기 실패/미설정 시 지수명 폴백.
+// resolveETFIndustry: 분류기가 있으면 코드 분류 여부와 무관하게 종목명 OpenAI 결과로 통일하고,
+// 분류기 미설정/실패 시에만 KIS 지수명(접두사 제거)으로 폴백한다.
 func TestResolveETFIndustry(t *testing.T) {
-	// 코드 분류된 국내 섹터 ETF → KRX 접두사 제거된 분류명
-	got := resolveETFIndustry("4003", "KRX 반도체", "KODEX 반도체", nil)
+	// 분류기 있으면 종목명 OpenAI 결과 사용
+	got := resolveETFIndustry("KRX 반도체", "KODEX 반도체",
+		func(name string) (string, error) { return "반도체", nil })
 	assert.Equal(t, "반도체", got)
 
-	// 9999 + 분류기 → 분류기 결과
-	got = resolveETFIndustry("9999", "S&P 500", "KODEX 미국S&P500",
+	// 코드 분류였지만 verbose 한 KRX 지수명도 OpenAI 로 정규화된다
+	got = resolveETFIndustry("S&P 500 Future Index TR", "KODEX 미국S&P500선물",
 		func(name string) (string, error) { return "미국주식", nil })
 	assert.Equal(t, "미국주식", got)
 
-	// 9999 + 분류기 실패 → 지수명 폴백
-	got = resolveETFIndustry("9999", "S&P 500", "KODEX 미국S&P500",
+	// 분류기 미설정(nil) → KIS 지수명 폴백(접두사 제거)
+	got = resolveETFIndustry("KRX 반도체", "KODEX 반도체", nil)
+	assert.Equal(t, "반도체", got)
+
+	// 분류기 실패 → 지수명 폴백
+	got = resolveETFIndustry("S&P 500", "KODEX 미국S&P500",
 		func(name string) (string, error) { return "", assert.AnError })
 	assert.Equal(t, "S&P 500", got)
-
-	// 9999 + 분류기 미설정(nil) → 지수명 폴백
-	got = resolveETFIndustry("9999", "Nikkei 225", "TIGER 일본니케이225", nil)
-	assert.Equal(t, "Nikkei 225", got)
 }
 
 func TestStripKRXPrefix(t *testing.T) {
@@ -121,6 +123,8 @@ func TestStripKRXPrefix(t *testing.T) {
 
 func TestValidateETFCategory(t *testing.T) {
 	assert.Equal(t, "미국주식", validateETFCategory("미국주식"))
+	assert.Equal(t, "한국주식", validateETFCategory("한국주식")) // 국내 시장대표
+	assert.Equal(t, "금융", validateETFCategory("금융"))     // 국내 섹터
 	assert.Equal(t, "방위·우주항공", validateETFCategory("방위·우주항공"))
 	assert.Equal(t, etfFallbackCategory, validateETFCategory("아무말"))
 	assert.Equal(t, etfFallbackCategory, validateETFCategory(""))
@@ -130,7 +134,8 @@ func TestValidateETFCategory(t *testing.T) {
 func TestNeedsRefresh(t *testing.T) {
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "S&P 500", Version: 0}), "구버전 ETF 재조회")
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: ""}), "산업 빈 구버전 ETF 재조회")
-	assert.False(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: etfCacheVersion}), "신버전 ETF 유지")
+	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "금현물지수", Version: 2}), "직전 버전 ETF 도 재분류 대상")
+	assert.False(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: etfCacheVersion}), "현재 버전 ETF 유지")
 	assert.False(t, needsRefresh(entry{Sector: "전기·전자", Industry: "반도체"}), "비-ETF 는 재조회 안 함")
 }
 

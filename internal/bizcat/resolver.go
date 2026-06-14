@@ -21,7 +21,8 @@ type entry struct {
 }
 
 // etfCacheVersion 은 현재 ETF 산업 분류 스키마 버전. 이보다 낮은 ETF 캐시는 재조회한다.
-const etfCacheVersion = 2
+// v2: 코드분류(KRX명)+9999(OpenAI) 하이브리드. v3: 전부 OpenAI taxonomy 로 통일.
+const etfCacheVersion = 3
 
 type Resolver struct {
 	mu          sync.Mutex
@@ -141,13 +142,13 @@ func kisFetch(classifyETF func(name string) (string, error)) func(code, name str
 		if err != nil {
 			return "", "", err
 		}
-		// ETF 는 표준산업분류가 비므로, 목표 지수 업종코드/지수명을 추가 조회해 산업을 하이브리드 분류한다.
+		// ETF 는 표준산업분류가 비므로, 종목명을 OpenAI taxonomy 로 분류한다(분류기 없으면 지수명 폴백).
 		var etfIndustry string
 		if isETF(price, info) {
 			if etf, err := client.Domestic.InquireEtfPrice(ctx, domestic.InquireEtfPriceParams{Symbol: code}); err != nil {
 				slog.Warn("ETF 분류 조회 실패, 산업 빈 값 처리", "code", code, "err", err)
 			} else {
-				etfIndustry = resolveETFIndustry(etf.Output.EtfTrgtNmixBstpCode, etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+				etfIndustry = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
 			}
 		}
 		sector, industry := extractSectorIndustry(price, info, etfIndustry)
@@ -155,17 +156,11 @@ func kisFetch(classifyETF func(name string) (string, error)) func(code, name str
 	}
 }
 
-// etfUnclassifiedCode 는 KIS 목표지수 업종코드 중 "미분류"(해외·테마 ETF)를 뜻한다.
-const etfUnclassifiedCode = "9999"
-
-// resolveETFIndustry 는 ETF 산업 분류를 하이브리드로 결정한다.
-//   - 목표지수 업종코드가 분류됨(≠9999) → KRX 분류명(stripKRXPrefix). 예 "KRX 반도체"→"반도체", "종합".
-//   - 9999(해외·테마) → 펀드 종목명을 OpenAI 분류기로 카테고리화(예 "미국주식"/"방위·우주항공"/"원자재").
-//   - 분류기 미설정/실패 → 지수명(stripKRXPrefix) 폴백(회복력).
-func resolveETFIndustry(trgtCode, rprsName, fundName string, classify func(name string) (string, error)) string {
-	if trgtCode != etfUnclassifiedCode {
-		return stripKRXPrefix(rprsName)
-	}
+// resolveETFIndustry 는 ETF 산업 분류를 결정한다.
+//   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 OpenAI taxonomy 로 분류해 통일한다
+//     (예 "미국주식"/"반도체"/"방위·우주항공"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
+//   - 분류기 미설정/실패 → KIS 지수명(stripKRXPrefix) 폴백(회복력).
+func resolveETFIndustry(rprsName, fundName string, classify func(name string) (string, error)) string {
 	if classify != nil {
 		if cat, err := classify(fundName); err == nil && cat != "" {
 			return cat
