@@ -60,6 +60,29 @@ func TestCountrySectorGroups(t *testing.T) {
 	assert.InDelta(t, 1.0, jp.Rows[0].Weight, 1e-9)
 }
 
+// 국내 ETF 는 섹터 대신 산업(OpenAI category)으로 "ETF·{category}" 세분화한다.
+// 산업이 빈 미분류 ETF 는 "ETF" 로 남는다. 일반 종목 섹터는 그대로.
+func TestCountrySectorGroups_ETFSubdividedByIndustry(t *testing.T) {
+	trades := []model.Trade{
+		{Currency: "KRW", Sector: "ETF", Industry: "반도체", TradeType: "매수", AmountKRW: 3_000_000},
+		{Currency: "KRW", Sector: "ETF", Industry: "미국주식", TradeType: "매수", AmountKRW: 1_000_000},
+		{Currency: "KRW", Sector: "ETF", Industry: "", TradeType: "매수", AmountKRW: 500_000}, // 미분류 → "ETF"
+		{Currency: "KRW", Sector: "금융", TradeType: "매수", AmountKRW: 500_000},
+	}
+	groups := countrySectorGroups(trades)
+	if !assert.Len(t, groups, 1) {
+		return
+	}
+	byLabel := map[string]float64{}
+	for _, r := range groups[0].Rows {
+		byLabel[r.Sector] = r.Buy
+	}
+	assert.Equal(t, 3_000_000.0, byLabel["ETF·반도체"])
+	assert.Equal(t, 1_000_000.0, byLabel["ETF·미국주식"])
+	assert.Equal(t, 500_000.0, byLabel["ETF"]) // 미분류 ETF
+	assert.Equal(t, 500_000.0, byLabel["금융"])  // 일반 종목 섹터 그대로
+}
+
 // 섹터가 모두 빈 국가는 제외된다.
 func TestCountrySectorGroups_SkipsEmptyCountry(t *testing.T) {
 	trades := []model.Trade{
