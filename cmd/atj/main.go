@@ -14,6 +14,7 @@ import (
 
 	"github.com/kenshin579/auto-trading-journal/internal/bizcat"
 	"github.com/kenshin579/auto-trading-journal/internal/config"
+	"github.com/kenshin579/auto-trading-journal/internal/fmpcat"
 	"github.com/kenshin579/auto-trading-journal/internal/model"
 	"github.com/kenshin579/auto-trading-journal/internal/parser"
 	"github.com/kenshin579/auto-trading-journal/internal/sector"
@@ -55,18 +56,30 @@ func enrichDomesticCodes(trades []model.Trade, r resolver) {
 	}
 }
 
-// bizcatResolver 는 종목코드/종목명 → (섹터, 산업) 조회를 추상화한다(테스트 스텁 주입용).
+// bizcatResolver 는 국내 종목코드/종목명 → (섹터, 산업) 조회를 추상화한다(테스트 스텁 주입용).
 // 종목명은 9999 미분류 ETF 의 OpenAI 분류 입력으로 쓰인다.
 type bizcatResolver interface {
 	Resolve(code, name string) (sector, industry string)
 }
 
-// enrichSectors 는 국내 거래(코드 있음)에 섹터/산업을 채운다(in-place). 해외/무코드는 스킵.
-func enrichSectors(trades []model.Trade, r bizcatResolver) {
+// foreignResolver 는 해외 티커/통화 → (섹터, 산업) 조회를 추상화한다(테스트 스텁 주입용).
+// 통화로 FMP 거래소 접미사를 정한다(US/JP).
+type foreignResolver interface {
+	Resolve(ticker, currency string) (sector, industry string)
+}
+
+// enrichSectors 는 거래(코드 있음)에 섹터/산업을 채운다(in-place). 국내는 KIS, 해외는 FMP.
+// 코드 없는 거래는 스킵.
+func enrichSectors(trades []model.Trade, dom bizcatResolver, fgn foreignResolver) {
 	for i := range trades {
 		t := &trades[i]
-		if t.IsDomestic() && t.StockCode != "" {
-			t.Sector, t.Industry = r.Resolve(t.StockCode, t.StockName)
+		if t.StockCode == "" {
+			continue
+		}
+		if t.IsDomestic() {
+			t.Sector, t.Industry = dom.Resolve(t.StockCode, t.StockName)
+		} else {
+			t.Sector, t.Industry = fgn.Resolve(t.StockCode, t.Currency)
 		}
 	}
 }
@@ -137,6 +150,8 @@ type processor struct {
 	symbolRes   resolver
 	bizcatRes   bizcatResolver
 	bizcatStore *bizcat.Resolver
+	fmpRes      foreignResolver
+	fmpStore    *fmpcat.Resolver
 }
 
 // newProcessor 는 config 를 로드하고 모든 의존성을 조립한다.
@@ -170,6 +185,9 @@ func newProcessor(ctx context.Context, dryRun bool, cfg *config.Config) (*proces
 	// 9999 미분류 ETF(해외·테마)는 종목명 기반 OpenAI 분류. 키 없으면 no-op(지수명 폴백).
 	bc.EnableETFClassifier(cfg.OpenAIAPIKey(), cfg.OpenAI.Model)
 
+	// 해외 종목 섹터/산업은 FMP 로 채운다(FMP_API_KEY 없으면 no-op).
+	fc := fmpcat.New("config/fmpcat_cache.json")
+
 	return &processor{
 		dryRun:      dryRun,
 		client:      client,
@@ -178,6 +196,8 @@ func newProcessor(ctx context.Context, dryRun bool, cfg *config.Config) (*proces
 		symbolRes:   symbol.New(),
 		bizcatRes:   bc,
 		bizcatStore: bc,
+		fmpRes:      fc,
+		fmpStore:    fc,
 	}, nil
 }
 
@@ -200,7 +220,7 @@ func (p *processor) processFile(ctx context.Context, f csvFile) ([]model.Trade, 
 		return nil, err
 	}
 	enrichDomesticCodes(trades, p.symbolRes)
-	enrichSectors(trades, p.bizcatRes)
+	enrichSectors(trades, p.bizcatRes, p.fmpRes)
 	if len(trades) == 0 {
 		slog.Warn(fmt.Sprintf("파싱 결과 없음: %s", filepath.Base(f.path)))
 		return nil, nil
@@ -256,14 +276,17 @@ func (p *processor) processFile(ctx context.Context, f csvFile) ([]model.Trade, 
 }
 
 // run 은 메인 실행: CSV 스캔 → 파일별 처리 → 대시보드 갱신. (Python run)
-// backfillSectors 는 기존 국내 시트 행의 섹터/산업 열을 일괄 채운다(1회용).
+// backfillSectors 는 기존 국내/해외 시트 행의 섹터/산업 열을 일괄 채운다(1회용).
 func (p *processor) backfillSectors(ctx context.Context) error {
 	slog.Info("=== 섹터/산업 백필 시작 (기존 행 갱신) ===")
 	defer slog.Info("스크립트 실행 완료")
 	if p.bizcatStore != nil {
 		defer p.bizcatStore.Save()
 	}
-	return p.writer.BackfillSectors(ctx, p.bizcatRes.Resolve)
+	if p.fmpStore != nil {
+		defer p.fmpStore.Save()
+	}
+	return p.writer.BackfillSectors(ctx, p.bizcatRes.Resolve, p.fmpRes.Resolve)
 }
 
 func (p *processor) run(ctx context.Context) error {
@@ -271,6 +294,9 @@ func (p *processor) run(ctx context.Context) error {
 	defer slog.Info("스크립트 실행 완료")
 	if p.bizcatStore != nil {
 		defer p.bizcatStore.Save()
+	}
+	if p.fmpStore != nil {
+		defer p.fmpStore.Save()
 	}
 
 	// 1. CSV 파일 스캔 및 시트 삽입

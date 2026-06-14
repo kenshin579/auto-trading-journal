@@ -22,16 +22,16 @@ func padStockCode(code string) string {
 	return strings.Repeat("0", 6-len(code)) + code
 }
 
-// backfillValues 는 종목코드/종목명 슬라이스를 (섹터,산업) 2D 값으로 변환한다(E:F 열 일괄 기록용).
-// 종목명은 9999 미분류 ETF 의 OpenAI 분류 입력으로 쓰인다.
-func backfillValues(codes, stockNames []string, resolve func(code, name string) (sector, industry string)) [][]interface{} {
-	out := make([][]interface{}, len(codes))
-	for i, code := range codes {
-		name := ""
-		if i < len(stockNames) {
-			name = stockNames[i]
+// backfillValues 는 (키, 보조) 슬라이스를 (섹터,산업) 2D 값으로 변환한다(섹터/산업 2열 일괄 기록용).
+// 국내: 키=종목코드, 보조=종목명(9999 ETF OpenAI 입력). 해외: 키=티커, 보조=통화(거래소 접미사).
+func backfillValues(keys, aux []string, resolve func(key, aux string) (sector, industry string)) [][]interface{} {
+	out := make([][]interface{}, len(keys))
+	for i, key := range keys {
+		a := ""
+		if i < len(aux) {
+			a = aux[i]
 		}
-		s, ind := resolve(code, name)
+		s, ind := resolve(key, a)
 		out[i] = []interface{}{s, ind}
 	}
 	return out
@@ -48,11 +48,16 @@ func colStrings(vals [][]interface{}, idx int) []string {
 	return out
 }
 
-// BackfillSectors 는 국내 매매일지 시트의 기존 행에 섹터(E)/산업(F) 을 일괄 채운다.
-// 종목코드(C)+종목명(D) 로 resolve 한 결과를 시트당 한 번의 batch 로 기록한다.
-// (종목명은 9999 미분류 ETF 의 OpenAI 분류 입력으로 쓰임.)
-// 신 포맷 국내 시트만 대상(해외는 설계상 공란, 구포맷/비매매일지는 스킵).
-func (w *Writer) BackfillSectors(ctx context.Context, resolve func(code, name string) (sector, industry string)) error {
+// BackfillSectors 는 기존 매매일지 시트의 섹터/산업 열을 일괄 채운다(시트당 한 번의 batch).
+//   - 국내 시트: 종목코드(C)+종목명(D) → domesticResolve → E·F 열.
+//   - 해외 시트: 통화(C)+종목코드/티커(D) → foreignResolve(ticker, currency) → F·G 열.
+//
+// 구포맷/비매매일지 시트는 스킵.
+func (w *Writer) BackfillSectors(
+	ctx context.Context,
+	domesticResolve func(code, name string) (sector, industry string),
+	foreignResolve func(ticker, currency string) (sector, industry string),
+) error {
 	sheetNames, err := w.getSheets(ctx)
 	if err != nil {
 		return err
@@ -63,28 +68,41 @@ func (w *Writer) BackfillSectors(ctx context.Context, resolve func(code, name st
 			slog.Error("헤더 조회 실패, 스킵", "sheet", sheetName, "err", err)
 			continue
 		}
-		if !headersEqual(extractHeaderRow(headerVals), DomesticHeaders) {
-			continue // 국내 신 포맷만
-		}
+		header := extractHeaderRow(headerVals)
 		rowVals, err := w.client.GetValues(ctx, sheetName+"!C2:D")
 		if err != nil {
-			slog.Error("종목코드/종목명 조회 실패, 스킵", "sheet", sheetName, "err", err)
+			slog.Error("종목 행 조회 실패, 스킵", "sheet", sheetName, "err", err)
 			continue
 		}
-		codes := colStrings(rowVals, 0)      // C: 종목코드
-		stockNames := colStrings(rowVals, 1) // D: 종목명
-		if len(codes) == 0 {
+
+		var keys, aux []string // keys=resolve 첫 인자, aux=둘째 인자
+		var resolve func(key, aux string) (string, string)
+		var writeRange string
+		switch {
+		case headersEqual(header, DomesticHeaders):
+			keys = colStrings(rowVals, 0) // C: 종목코드
+			aux = colStrings(rowVals, 1)  // D: 종목명
+			for i := range keys {
+				keys[i] = padStockCode(keys[i]) // 앞 0 유실 코드 복원(국내만)
+			}
+			resolve = domesticResolve
+			writeRange = fmt.Sprintf("%s!E2:F%d", sheetName, len(keys)+1)
+		case headersEqual(header, ForeignHeaders):
+			aux = colStrings(rowVals, 0)  // C: 통화
+			keys = colStrings(rowVals, 1) // D: 종목코드(티커)
+			resolve = foreignResolve
+			writeRange = fmt.Sprintf("%s!F2:G%d", sheetName, len(keys)+1)
+		default:
+			continue // 구포맷/비매매일지 스킵
+		}
+		if len(keys) == 0 {
 			continue
 		}
-		for i := range codes {
-			codes[i] = padStockCode(codes[i]) // 앞 0 유실 코드 복원
-		}
-		values := backfillValues(codes, stockNames, resolve)
-		rng := fmt.Sprintf("%s!E2:F%d", sheetName, len(codes)+1)
-		if err := w.client.BatchUpdateValues(ctx, map[string][][]interface{}{rng: values}); err != nil {
+		values := backfillValues(keys, aux, resolve)
+		if err := w.client.BatchUpdateValues(ctx, map[string][][]interface{}{writeRange: values}); err != nil {
 			return fmt.Errorf("섹터 백필(%s): %w", sheetName, err)
 		}
-		slog.Info("섹터/산업 백필 완료", "sheet", sheetName, "rows", len(codes))
+		slog.Info("섹터/산업 백필 완료", "sheet", sheetName, "rows", len(keys))
 	}
 	return nil
 }

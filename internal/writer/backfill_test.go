@@ -29,6 +29,25 @@ func TestBackfillValues(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+// 해외용: 키=티커, 보조=통화 → FMP resolve.
+func TestBackfillValues_Foreign(t *testing.T) {
+	resolve := func(ticker, currency string) (string, string) {
+		if ticker == "AAPL" && currency == "USD" {
+			return "Technology", "Consumer Electronics"
+		}
+		return "", "" // 미커버/미지원 통화
+	}
+	got := backfillValues(
+		[]string{"AAPL", "1321"},
+		[]string{"USD", "JPY"},
+		resolve)
+	want := [][]interface{}{
+		{"Technology", "Consumer Electronics"},
+		{"", ""},
+	}
+	assert.Equal(t, want, got)
+}
+
 func TestPadStockCode(t *testing.T) {
 	assert.Equal(t, "055550", padStockCode("55550"))  // 앞 0 유실 복원
 	assert.Equal(t, "005935", padStockCode("5935"))   // 삼성전자우

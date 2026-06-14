@@ -3,6 +3,7 @@ module github.com/kenshin579/auto-trading-journal
 go 1.25.8
 
 require (
+	github.com/kenshin579/fmp-go v0.29.1
 	github.com/kenshin579/korea-investment-stock v1.28.0
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/stretchr/testify v1.11.1

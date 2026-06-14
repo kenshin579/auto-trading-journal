@@ -95,15 +95,28 @@ func (s stubBizcat) Resolve(code, name string) (string, string) {
 	return v[0], v[1]
 }
 
-func TestEnrichSectors_DomesticOnly(t *testing.T) {
+type stubForeign map[string][2]string
+
+func (s stubForeign) Resolve(ticker, currency string) (string, string) {
+	v, ok := s[ticker]
+	if !ok {
+		return "", ""
+	}
+	return v[0], v[1]
+}
+
+func TestEnrichSectors_DomesticAndForeign(t *testing.T) {
 	trades := []model.Trade{
 		{StockCode: "005930", Account: "미래에셋증권_국내계좌"},
-		{StockCode: "AAPL", Account: "미래에셋증권_해외계좌"},
+		{StockCode: "AAPL", Currency: "USD", Account: "미래에셋증권_해외계좌"},
 		{StockCode: "", Account: "미래에셋증권_국내계좌"}, // 코드 없음 → 미보강
 	}
-	enrichSectors(trades, stubBizcat{"005930": {"전기·전자", "반도체"}})
-	assert.Equal(t, "전기·전자", trades[0].Sector)
+	enrichSectors(trades,
+		stubBizcat{"005930": {"전기·전자", "반도체"}},
+		stubForeign{"AAPL": {"Technology", "Consumer Electronics"}})
+	assert.Equal(t, "전기·전자", trades[0].Sector) // 국내 KIS
 	assert.Equal(t, "반도체", trades[0].Industry)
-	assert.Equal(t, "", trades[1].Sector) // 해외 미보강
+	assert.Equal(t, "Technology", trades[1].Sector) // 해외 FMP
+	assert.Equal(t, "Consumer Electronics", trades[1].Industry)
 	assert.Equal(t, "", trades[2].Sector) // 코드 없음
 }
