@@ -37,7 +37,8 @@ internal/
 ├── parser   - Parser 인터페이스 + registry(DetectParser) + mirae/hankook
 │             (readCSVRows 가 CP949/UTF-8 네이티브 디코딩)
 ├── symbol   - KRX .mst → 종목코드 (fwf + cp949, 7일 캐시)
-├── bizcat   - KIS 업종 조회 → 섹터/산업 (InquirePrice + SearchStockInfo, 영구 캐시) — 거래행 섹터/산업 열용
+├── bizcat   - KIS 업종 조회 → 국내 섹터/산업 (InquirePrice + SearchStockInfo, 영구 캐시) — 거래행 섹터/산업 열용
+├── fmpcat   - FMP 회사 프로필 → 해외 섹터/산업 (Company.Profile, 영구 캐시, 통화→거래소 접미사 US/JP) — 해외 거래행용
 ├── sector   - OpenAI 섹터 분류 (go-openai, JSON 캐시) — 요약 "섹터별 투자비중"용 (bizcat과 별개)
 ├── sheets   - Google Sheets v4 래퍼 (값/포맷/색상/필터/차트 + 레이트리밋 재시도)
 ├── writer   - 시트 생성/중복필터/삽입 + ReadAllTrades
@@ -50,7 +51,7 @@ internal/
 2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
 3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
 4. **종목코드 보강**: 국내 거래 중 종목코드가 빈 항목을 KRX 마스터에서 조회해 채움
-4b. **섹터/산업 보강**: 국내 거래에 KIS 조회로 채움 — 섹터=InquirePrice 업종 한글명(bstp_kor_isnm), 산업=표준산업분류. ETF 는 섹터="ETF", 산업=InquireEtfPrice 대표 업종명 (`internal/bizcat`, 해외는 공란)
+4b. **섹터/산업 보강**: 국내 거래는 KIS(`internal/bizcat`) — 섹터=InquirePrice 업종 한글명(bstp_kor_isnm), 산업=표준산업분류. ETF 는 섹터="ETF", 산업=종목명 OpenAI taxonomy. **해외 거래는 FMP(`internal/fmpcat`)** — 통화로 거래소 접미사(US/JP)를 붙여 `Company.Profile` 조회, 섹터/산업 영문 원본
 5. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
 6. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
 7. **데이터 삽입**: 신규 거래 일괄 삽입 + 숫자/통화 포맷 적용 (거래 시트 날짜별 배경색은 현재 미적용)
@@ -73,9 +74,15 @@ internal/
 - 섹터 = `Domestic.InquirePrice(code)` 의 **업종 한글명**(`BstpKorIsnm`/bstp_kor_isnm, 예 "전기·전자"/"IT 서비스"/"의료·정밀기기"). 일반 종목 커버리지가 가장 넓고(지수업종 중분류는 대형주만 채워짐) moneyflow `sector_detail` 과 동일 소스. ETF 는 섹터를 짧게 `"ETF"` 로 정규화.
 - 산업 = `Domestic.SearchStockInfo(code,"300")` 의 **표준산업분류**(`StdIdstClsfCdName`, 예 "의료용 기기 제조업"). ⚠️ 지수업종(대/중/소분류)은 커버리지가 낮아 미사용.
 - **ETF 산업** = **펀드 종목명을 OpenAI taxonomy 로 분류**(`internal/bizcat/etfclass.go`, 고정 25종: 한국/미국/중국/일본/인도/베트남/글로벌주식 · 반도체/2차전지/바이오·헬스케어/AI·로봇/신재생에너지/원자력/방위·우주항공/자동차/금융/건설/필수소비재/IT·인터넷 · 배당/리츠·부동산/원자재/채권/통화·단기금리 · 기타테마). 코드 분류 여부와 무관하게 종목명으로 통일(verbose 한 KRX 지수명도 정규화). 분류기 미설정/실패 시 `Domestic.InquireEtfPrice` 의 지수명(`EtfRprsBstpKorIsnm`, "KRX " 접두사 제거) 폴백. ETF 판별은 `EtfDvsnCd != ""`(+ bstp_kor_isnm "ETF…" 접두사 백업).
-- 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**(ETF 는 InquireEtfPrice 까지 **3회**). KIS 초당 제한(EGW00201) 회피를 위해 `WithRateLimit(kisCallsPerSec=4)` 로 호출을 페이싱하고, 같은 실행 내 실패 코드는 negative-cache(`failed`, 비영구)로 재조회를 막는다. 성공 결과는 `config/bizcat_cache.json` 에 영구 캐시(실행 간 유지). 구버전 캐시의 `{섹터:"ETF", 산업:""}` 항목은 자가치유로 재조회되어 산업이 채워진다(`needsRefresh`).
+- 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**(ETF 는 InquireEtfPrice 까지 **3회**). KIS 초당 제한(EGW00201) 회피를 위해 `WithRateLimit(kisCallsPerSec=3)` 로 호출을 페이싱하고, 같은 실행 내 실패 코드는 negative-cache(`failed`, 비영구)로 재조회를 막는다. 성공 결과는 `config/bizcat_cache.json` 에 영구 캐시(실행 간 유지). 구버전 캐시의 `{섹터:"ETF", 산업:""}` 항목은 자가치유로 재조회되어 산업이 채워진다(`needsRefresh`).
 - 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. KIS 키 없거나 실패 시 빈 값(회복력).
 - atj 는 `ensureKISFileToken`(main.go)으로 **파일 토큰 강제** — env가 redis 라도 Redis 의존 없이 동작.
+
+**internal/fmpcat** (`resolver.go`) — 해외 종목 섹터/산업:
+- `Resolve(ticker, currency)` → FMP `Company.Profile(symbol)` 의 **영문 섹터/산업**(예 AAPL→Technology/Consumer Electronics). 표기는 영문 원본(나라별 비중 분석용).
+- `exchangeSuffix(currency)`: 통화로 거래소 접미사. 현재 **US/JP 만**(`USD→""`, `JPY→".T"`), 그 외 통화는 미지원→공란. 캐시 키 = `ticker+suffix`(예 "7203.T").
+- not-found(`fmp.ErrNotFound`; 해외 ETF·미커버)는 빈 값으로 영구 캐시(재조회 안 함). 일시적 오류만 negative-cache 재시도.
+- 영구 캐시 `config/fmpcat_cache.json`, lazy `fmp.NewClientFromEnv()`(`FMP_API_KEY`). 키 없으면 no-op(공란).
 
 **internal/parser** (`parser.go`, `mirae.go`, `hankook.go`, `registry.go`):
 - `Parser` 인터페이스(Name/CanParse/Parse), `DetectParser`(헤더 기반 자동 선택, 순서 Mirae국내→Mirae해외→Hankook)
@@ -118,6 +125,8 @@ logging:
 **Environment Variables** (optional override):
 - `GOOGLE_SPREADSHEET_ID`: 스프레드시트 ID
 - `SERVICE_ACCOUNT_PATH`: 서비스 계정 키 파일 경로
+- `STOCK_DATA_OPENAI_API_KEY`: OpenAI 키(국내 ETF 산업 분류 + 대시보드 섹터 분류). 없으면 해당 기능 비활성
+- `FMP_API_KEY`: FMP 키(해외 종목 섹터/산업). 없으면 해외 보강 비활성(공란)
 
 ### Google Sheets Setup
 
@@ -138,9 +147,9 @@ logging:
 ### 시트 컬럼 구조 (섹터/산업 포함)
 
 국내계좌 시트는 **12컬럼**: 일자, 구분, 종목코드, 종목명, **섹터, 산업**, 수량, 단가, 금액,
-수수료, 손익금액, 수익률(%). 해외계좌 시트는 **17컬럼**(종목명 뒤 섹터/산업, 해외는 공란).
+수수료, 손익금액, 수익률(%). 해외계좌 시트는 **17컬럼**(종목명 뒤 섹터=F/산업=G, FMP 영문).
 - 종목코드: CSV에 없으면 KRX 마스터(`internal/symbol`)에서 조회.
-- 섹터/산업: 국내만 KIS 조회(`internal/bizcat`, 섹터=InquirePrice 업종 한글명 / 산업=표준산업분류)로 채움. 해외 공란.
+- 섹터/산업: 국내는 KIS(`internal/bizcat`, 섹터=업종 한글명 / 산업=표준산업분류), 해외는 FMP(`internal/fmpcat`, 영문 섹터/산업, 통화→거래소 접미사 US/JP). 미지원 통화·미커버(해외 ETF)는 공란.
 
 **기존 시트 마이그레이션**: 섹터/산업(또는 종목코드) 컬럼 도입 이전 포맷(10/15/9컬럼) 시트는
 헤더 불일치로 **경고 로그와 함께 스킵**됩니다(자동 변환 안 함). 시트를 삭제 후 재실행하거나
