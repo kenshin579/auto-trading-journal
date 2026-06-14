@@ -103,22 +103,24 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 	if currentRow, err = g.writeMonthlyTrend(ctx, trades, currentRow); err != nil {
 		return err
 	}
-	currentRow++ // 빈 행
-	stockStart := currentRow
-	if currentRow, err = g.writeStockSummary(ctx, trades, currentRow); err != nil {
-		return err
-	}
-	stockEnd := currentRow // 종목별 현황 끝(나라별 섹션 추가 전 — 종목 포맷 범위 보존)
+	trendEnd := currentRow // 월별 성과 추이 끝(차트/포맷 범위 — 아래 나라별 섹션 삽입 전 보존)
 
 	currentRow++ // 빈 행
 	if currentRow, err = g.writeCountrySectorWeight(ctx, trades, currentRow); err != nil {
 		return err
 	}
 
+	currentRow++             // 빈 행
+	stockStart := currentRow // 종목별 현황(가장 큼)은 맨 아래
+	if currentRow, err = g.writeStockSummary(ctx, trades, currentRow); err != nil {
+		return err
+	}
+	stockEnd := currentRow
+
 	// 포맷/색상 요청을 pendingRequests 에 수집. (Python generate_all py:69-73)
 	g.collectHeaderColors(monthlyStart, trendStart, stockStart)
 	g.collectDashboardFormats(monthlyStart, metricsStart, insightsStart,
-		trendStart, stockStart, stockEnd)
+		trendStart, trendEnd, stockStart, stockEnd)
 
 	// 차트용 거래건수 데이터 작성 (포맷 요청도 수집됨). (Python py:76)
 	if err := g.writeTradeCountData(ctx, trades); err != nil {
@@ -131,7 +133,7 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 	}
 
 	// 차트 생성. (Python py:81-85)
-	if err := g.createCharts(ctx, trendStart, stockStart-1); err != nil {
+	if err := g.createCharts(ctx, trendStart, trendEnd); err != nil {
 		return err
 	}
 
