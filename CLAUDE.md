@@ -50,7 +50,7 @@ internal/
 2. **파서 감지**: CSV 헤더를 읽어 파서 자동 선택
 3. **파싱**: 증권사 형식에 맞춰 Trade 객체 리스트 생성
 4. **종목코드 보강**: 국내 거래 중 종목코드가 빈 항목을 KRX 마스터에서 조회해 채움
-4b. **섹터/산업 보강**: 국내 거래에 KIS 조회로 채움 — 섹터=InquirePrice 업종 한글명(bstp_kor_isnm), 산업=표준산업분류 (`internal/bizcat`, 해외는 공란)
+4b. **섹터/산업 보강**: 국내 거래에 KIS 조회로 채움 — 섹터=InquirePrice 업종 한글명(bstp_kor_isnm), 산업=표준산업분류. ETF 는 섹터="ETF", 산업=InquireEtfPrice 대표 업종명 (`internal/bizcat`, 해외는 공란)
 5. **시트 확인**: 시트가 없으면 자동 생성 + 헤더 삽입
 6. **중복 필터**: 기존 시트 데이터와 비교하여 중복 제거
 7. **데이터 삽입**: 신규 거래 일괄 삽입 + 숫자/통화 포맷 적용 (거래 시트 날짜별 배경색은 현재 미적용)
@@ -70,9 +70,10 @@ internal/
 - `Trade` struct (Sector/Industry 포함) + `ToDomesticRow`(12컬럼)/`ToForeignRow`(17컬럼)/`ToSheetRow` + `DuplicateKey`(DupKey; 섹터/산업 미포함)
 
 **internal/bizcat** (`resolver.go`):
-- 섹터 = `Domestic.InquirePrice(code)` 의 **업종 한글명**(`BstpKorIsnm`/bstp_kor_isnm, 예 "전기·전자"/"IT 서비스"/"의료·정밀기기"). 일반 종목 커버리지가 가장 넓고(지수업종 중분류는 대형주만 채워짐) moneyflow `sector_detail` 과 동일 소스. ETF 는 "ETF(실물복제/수익증권)" 라벨.
-- 산업 = `Domestic.SearchStockInfo(code,"300")` 의 **표준산업분류**(`StdIdstClsfCdName`, 예 "의료용 기기 제조업"). 일반 종목은 채워지고 ETF 는 공란. ⚠️ 지수업종(대/중/소분류)은 커버리지가 낮아 미사용.
-- 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**. KIS 초당 제한(EGW00201) 회피를 위해 `WithRateLimit(kisCallsPerSec=4)` 로 호출을 페이싱하고, 같은 실행 내 실패 코드는 negative-cache(`failed`, 비영구)로 재조회를 막는다. 성공 결과는 `config/bizcat_cache.json` 에 영구 캐시(실행 간 유지).
+- 섹터 = `Domestic.InquirePrice(code)` 의 **업종 한글명**(`BstpKorIsnm`/bstp_kor_isnm, 예 "전기·전자"/"IT 서비스"/"의료·정밀기기"). 일반 종목 커버리지가 가장 넓고(지수업종 중분류는 대형주만 채워짐) moneyflow `sector_detail` 과 동일 소스. ETF 는 섹터를 짧게 `"ETF"` 로 정규화.
+- 산업 = `Domestic.SearchStockInfo(code,"300")` 의 **표준산업분류**(`StdIdstClsfCdName`, 예 "의료용 기기 제조업"). ⚠️ 지수업종(대/중/소분류)은 커버리지가 낮아 미사용.
+- **ETF 산업** = `Domestic.InquireEtfPrice(code)` 의 **대표 업종명**(`EtfRprsBstpKorIsnm`/etf_rprs_bstp_kor_isnm, 예 "반도체"). 표준산업분류가 비는 ETF 의 산업 열에 추종 섹터를 채운다. ETF 판별은 `EtfDvsnCd != ""`(+ bstp_kor_isnm "ETF…" 접두사 백업).
+- 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**(ETF 는 InquireEtfPrice 까지 **3회**). KIS 초당 제한(EGW00201) 회피를 위해 `WithRateLimit(kisCallsPerSec=4)` 로 호출을 페이싱하고, 같은 실행 내 실패 코드는 negative-cache(`failed`, 비영구)로 재조회를 막는다. 성공 결과는 `config/bizcat_cache.json` 에 영구 캐시(실행 간 유지). 구버전 캐시의 `{섹터:"ETF", 산업:""}` 항목은 자가치유로 재조회되어 산업이 채워진다(`needsRefresh`).
 - 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. KIS 키 없거나 실패 시 빈 값(회복력).
 - atj 는 `ensureKISFileToken`(main.go)으로 **파일 토큰 강제** — env가 redis 라도 Redis 의존 없이 동작.
 

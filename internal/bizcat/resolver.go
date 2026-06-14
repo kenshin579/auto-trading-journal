@@ -52,11 +52,13 @@ func (r *Resolver) Resolve(code string) (string, string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if e, ok := r.cache[code]; ok {
-		return e.Sector, e.Industry
+	cached, hasCached := r.cache[code]
+	if hasCached && !needsRefresh(cached) {
+		return cached.Sector, cached.Industry
 	}
 	if r.failed[code] {
-		return "", "" // 이번 실행에서 이미 실패 → 재조회 안 함
+		// 이번 실행에서 이미 실패 → 재조회 안 함. 자가치유 대상이면 기존 캐시 보존.
+		return cached.Sector, cached.Industry
 	}
 	if r.fetch == nil {
 		r.fetch = kisFetch()
@@ -68,11 +70,18 @@ func (r *Resolver) Resolve(code string) (string, string) {
 		}
 		r.failed[code] = true
 		slog.Warn("업종 조회 실패, 빈 값 처리", "code", code, "err", err)
-		return "", ""
+		return cached.Sector, cached.Industry // 자가치유 재조회 실패 시 기존 캐시 보존
 	}
 	r.cache[code] = entry{Sector: sector, Industry: industry}
 	r.dirty = true
 	return sector, industry
+}
+
+// needsRefresh 는 캐시 히트라도 재조회가 필요한지 판단한다.
+// 구버전 캐시는 ETF 를 {섹터:"ETF", 산업:""} 로 저장했는데, 이제 산업 열에
+// ETF 대표 업종명을 채우므로 미스로 간주해 재조회한다(별도 마이그레이션 불필요).
+func needsRefresh(e entry) bool {
+	return e.Sector == "ETF" && e.Industry == ""
 }
 
 func (r *Resolver) Save() {
@@ -101,8 +110,8 @@ func (r *Resolver) saveCache() error {
 }
 
 // kisCallsPerSec 는 bizcat 업종 조회의 KIS 호출 빈도 상한.
-// 코드당 2회 호출(InquirePrice + SearchStockInfo)이라 SDK 기본(15/s)에선 초당 제한
-// (EGW00201)에 걸린다. 보수적으로 낮춰 한 실행에 빠짐없이 채워지도록 한다.
+// 코드당 2회 호출(InquirePrice + SearchStockInfo, ETF 는 InquireEtfPrice 까지 3회)이라
+// SDK 기본(15/s)에선 초당 제한(EGW00201)에 걸린다. 보수적으로 낮춰 한 실행에 빠짐없이 채워지도록 한다.
 const kisCallsPerSec = 4
 
 func kisFetch() func(string) (string, string, error) {
@@ -121,23 +130,38 @@ func kisFetch() func(string) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		sector, industry := extractSectorIndustry(price, info)
+		// ETF 는 표준산업분류가 비므로, 대표 업종명(etf_rprs_bstp_kor_isnm)을 추가 조회해 산업 열에 채운다.
+		var etfIndustry string
+		if isETF(price, info) {
+			if etf, err := client.Domestic.InquireEtfPrice(ctx, domestic.InquireEtfPriceParams{Symbol: code}); err != nil {
+				slog.Warn("ETF 대표 업종 조회 실패, 산업 빈 값 처리", "code", code, "err", err)
+			} else {
+				etfIndustry = etf.Output.EtfRprsBstpKorIsnm
+			}
+		}
+		sector, industry := extractSectorIndustry(price, info, etfIndustry)
 		return sector, industry, nil
 	}
 }
 
+// isETF 는 종목이 ETF 인지 판별한다. SearchStockInfo 의 ETF 구분 코드(etf_dvsn_cd)를 1차
+// 신호로 쓰되, 비어 오는 경우를 대비해 업종 한글명 "ETF…" 접두사도 함께 본다.
+func isETF(price *domestic.Price, info *domestic.StockInfo) bool {
+	return info.EtfDvsnCd != "" || strings.HasPrefix(price.BstpKorIsnm, "ETF")
+}
+
 // extractSectorIndustry 는 KIS 응답에서 섹터/산업을 추출한다.
 //
+//   - 일반 종목
 //   - 섹터  = InquirePrice 의 업종 한글명(bstp_kor_isnm, 예 "전기·전자"/"IT 서비스"/"의료·정밀기기").
 //     지수업종 중분류가 비는 일반 종목(클래시스·솔루엠 등)도 채워져 커버리지가 가장 넓다.
-//     ETF 는 "ETF(실물복제/수익증권)" 라벨이 들어온다. moneyflow 의 sector_detail 과 동일 소스.
+//     moneyflow 의 sector_detail 과 동일 소스.
 //   - 산업  = search-stock-info 의 표준산업분류(std_idst_clsf_cd_name, 예 "의료용 기기 제조업").
-//     일반 종목은 채워지고 ETF 는 빈값.
-func extractSectorIndustry(price *domestic.Price, info *domestic.StockInfo) (sector, industry string) {
-	sector = price.BstpKorIsnm
-	// ETF 는 "ETF(실물복제/수익증권)" 등 긴 라벨로 오므로 짧게 "ETF" 로 정규화.
-	if strings.HasPrefix(sector, "ETF") {
-		sector = "ETF"
+//   - ETF: 섹터 = "ETF"(고정), 산업 = etfIndustry(InquireEtfPrice 의 대표 업종명, 예 "반도체").
+//     표준산업분류가 비는 ETF 의 산업 열을 추종 섹터로 채운다.
+func extractSectorIndustry(price *domestic.Price, info *domestic.StockInfo, etfIndustry string) (sector, industry string) {
+	if isETF(price, info) {
+		return "ETF", etfIndustry
 	}
-	return sector, info.StdIdstClsfCdName
+	return price.BstpKorIsnm, info.StdIdstClsfCdName
 }
