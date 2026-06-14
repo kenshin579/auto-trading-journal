@@ -1,0 +1,539 @@
+{
+  "0023A0": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "0046A0": {
+    "sector": "ETF",
+    "industry": "채권",
+    "v": 3
+  },
+  "0048K0": {
+    "sector": "ETF",
+    "industry": "AI·로봇",
+    "v": 3
+  },
+  "005935": {
+    "sector": "전기·전자",
+    "industry": "통신 및 방송 장비 제조업"
+  },
+  "0060H0": {
+    "sector": "ETF",
+    "industry": "글로벌주식",
+    "v": 3
+  },
+  "0088N0": {
+    "sector": "ETF",
+    "industry": "글로벌주식",
+    "v": 3
+  },
+  "009830": {
+    "sector": "화학",
+    "industry": "기초화학물질 제조업"
+  },
+  "0113D0": {
+    "sector": "ETF",
+    "industry": "글로벌주식",
+    "v": 3
+  },
+  "0150K0": {
+    "sector": "ETF",
+    "industry": "신재생에너지",
+    "v": 3
+  },
+  "016360": {
+    "sector": "증권",
+    "industry": "금융지원 서비스업"
+  },
+  "017670": {
+    "sector": "통신",
+    "industry": "전기통신업"
+  },
+  "030200": {
+    "sector": "통신",
+    "industry": "전기통신업"
+  },
+  "032640": {
+    "sector": "통신",
+    "industry": "전기통신업"
+  },
+  "035420": {
+    "sector": "IT 서비스",
+    "industry": "자료처리, 호스팅, 포털 및 기타 인터넷 정보매개서비스업"
+  },
+  "035900": {
+    "sector": "오락·문화",
+    "industry": "오디오물 출판 및 원판 녹음업"
+  },
+  "055550": {
+    "sector": "금융",
+    "industry": "기타 금융업"
+  },
+  "066570": {
+    "sector": "전기·전자",
+    "industry": "통신 및 방송 장비 제조업"
+  },
+  "086790": {
+    "sector": "금융",
+    "industry": "기타 금융업"
+  },
+  "088980": {
+    "sector": "인프라투용",
+    "industry": "투자기관"
+  },
+  "091160": {
+    "sector": "ETF",
+    "industry": "반도체",
+    "v": 3
+  },
+  "091170": {
+    "sector": "ETF",
+    "industry": "금융",
+    "v": 3
+  },
+  "091180": {
+    "sector": "ETF",
+    "industry": "자동차",
+    "v": 3
+  },
+  "091230": {
+    "sector": "ETF",
+    "industry": "반도체",
+    "v": 3
+  },
+  "092730": {
+    "sector": "화학",
+    "industry": "기타 화학제품 제조업"
+  },
+  "138040": {
+    "sector": "금융",
+    "industry": "기타 금융업"
+  },
+  "139130": {
+    "sector": "금융",
+    "industry": "기타 금융업"
+  },
+  "139220": {
+    "sector": "ETF",
+    "industry": "건설",
+    "v": 3
+  },
+  "140700": {
+    "sector": "ETF",
+    "industry": "금융",
+    "v": 3
+  },
+  "143860": {
+    "sector": "ETF",
+    "industry": "바이오·헬스케어",
+    "v": 3
+  },
+  "144600": {
+    "sector": "ETF",
+    "industry": "원자재",
+    "v": 3
+  },
+  "157500": {
+    "sector": "ETF",
+    "industry": "금융",
+    "v": 3
+  },
+  "161510": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "214150": {
+    "sector": "의료·정밀기기",
+    "industry": "의료용 기기 제조업"
+  },
+  "219480": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "226490": {
+    "sector": "ETF",
+    "industry": "한국주식",
+    "v": 3
+  },
+  "228790": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "229200": {
+    "sector": "ETF",
+    "industry": "한국주식",
+    "v": 3
+  },
+  "241180": {
+    "sector": "ETF",
+    "industry": "일본주식",
+    "v": 3
+  },
+  "244580": {
+    "sector": "ETF",
+    "industry": "바이오·헬스케어",
+    "v": 3
+  },
+  "245710": {
+    "sector": "ETF",
+    "industry": "베트남주식",
+    "v": 3
+  },
+  "248070": {
+    "sector": "전기·전자",
+    "industry": "전자부품 제조업"
+  },
+  "266410": {
+    "sector": "ETF",
+    "industry": "필수소비재",
+    "v": 3
+  },
+  "271560": {
+    "sector": "음식료·담배",
+    "industry": "동물용 사료 및 조제식품 제조업"
+  },
+  "293940": {
+    "sector": "리츠",
+    "industry": "부동산 임대 및 공급업"
+  },
+  "294400": {
+    "sector": "ETF",
+    "industry": "한국주식",
+    "v": 3
+  },
+  "304660": {
+    "sector": "ETF",
+    "industry": "채권",
+    "v": 3
+  },
+  "305540": {
+    "sector": "ETF",
+    "industry": "2차전지",
+    "v": 3
+  },
+  "314250": {
+    "sector": "ETF",
+    "industry": "IT·인터넷",
+    "v": 3
+  },
+  "316140": {
+    "sector": "금융",
+    "industry": "기타 금융업"
+  },
+  "319640": {
+    "sector": "ETF",
+    "industry": "원자재",
+    "v": 3
+  },
+  "329200": {
+    "sector": "ETF",
+    "industry": "리츠·부동산",
+    "v": 3
+  },
+  "330590": {
+    "sector": "리츠",
+    "industry": "부동산 임대 및 공급업"
+  },
+  "344820": {
+    "sector": "비금속",
+    "industry": "유리 및 유리제품 제조업"
+  },
+  "348950": {
+    "sector": "리츠",
+    "industry": "부동산 임대 및 공급업"
+  },
+  "354350": {
+    "sector": "ETF",
+    "industry": "글로벌주식",
+    "v": 3
+  },
+  "357870": {
+    "sector": "ETF",
+    "industry": "통화·단기금리",
+    "v": 3
+  },
+  "360200": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "360750": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "364970": {
+    "sector": "ETF",
+    "industry": "바이오·헬스케어",
+    "v": 3
+  },
+  "364980": {
+    "sector": "ETF",
+    "industry": "2차전지",
+    "v": 3
+  },
+  "365340": {
+    "sector": "화학",
+    "industry": "기초화학물질 제조업"
+  },
+  "365550": {
+    "sector": "리츠",
+    "industry": "부동산 임대 및 공급업"
+  },
+  "368590": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "371160": {
+    "sector": "ETF",
+    "industry": "중국주식",
+    "v": 3
+  },
+  "371460": {
+    "sector": "ETF",
+    "industry": "중국주식",
+    "v": 3
+  },
+  "372330": {
+    "sector": "ETF",
+    "industry": "중국주식",
+    "v": 3
+  },
+  "379780": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "379800": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "379810": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "381170": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "381180": {
+    "sector": "ETF",
+    "industry": "반도체",
+    "v": 3
+  },
+  "385510": {
+    "sector": "ETF",
+    "industry": "신재생에너지",
+    "v": 3
+  },
+  "390390": {
+    "sector": "ETF",
+    "industry": "반도체",
+    "v": 3
+  },
+  "395400": {
+    "sector": "리츠",
+    "industry": "부동산 임대 및 공급업"
+  },
+  "403870": {
+    "sector": "기계·장비",
+    "industry": "특수 목적용 기계 제조업"
+  },
+  "411060": {
+    "sector": "ETF",
+    "industry": "원자재",
+    "v": 3
+  },
+  "415920": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "429000": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "432320": {
+    "sector": "리츠",
+    "industry": "부동산 임대 및 공급업"
+  },
+  "433980": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "434730": {
+    "sector": "ETF",
+    "industry": "원자력",
+    "v": 3
+  },
+  "440910": {
+    "sector": "ETF",
+    "industry": "방위·우주항공",
+    "v": 3
+  },
+  "442320": {
+    "sector": "ETF",
+    "industry": "원자력",
+    "v": 3
+  },
+  "446720": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "448290": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "448300": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "449450": {
+    "sector": "ETF",
+    "industry": "방위·우주항공",
+    "v": 3
+  },
+  "452360": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "453810": {
+    "sector": "ETF",
+    "industry": "인도주식",
+    "v": 3
+  },
+  "453850": {
+    "sector": "ETF",
+    "industry": "채권",
+    "v": 3
+  },
+  "456880": {
+    "sector": "ETF",
+    "industry": "통화·단기금리",
+    "v": 3
+  },
+  "457480": {
+    "sector": "ETF",
+    "industry": "2차전지",
+    "v": 3
+  },
+  "458730": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "458760": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "461270": {
+    "sector": "ETF",
+    "industry": "채권",
+    "v": 3
+  },
+  "462900": {
+    "sector": "ETF",
+    "industry": "바이오·헬스케어",
+    "v": 3
+  },
+  "464310": {
+    "sector": "ETF",
+    "industry": "AI·로봇",
+    "v": 3
+  },
+  "464610": {
+    "sector": "ETF",
+    "industry": "바이오·헬스케어",
+    "v": 3
+  },
+  "465580": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "469830": {
+    "sector": "ETF",
+    "industry": "채권",
+    "v": 3
+  },
+  "475050": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "476690": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "476800": {
+    "sector": "ETF",
+    "industry": "리츠·부동산",
+    "v": 3
+  },
+  "478150": {
+    "sector": "ETF",
+    "industry": "방위·우주항공",
+    "v": 3
+  },
+  "481190": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "482730": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "483330": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "487230": {
+    "sector": "ETF",
+    "industry": "AI·로봇",
+    "v": 3
+  },
+  "487240": {
+    "sector": "ETF",
+    "industry": "AI·로봇",
+    "v": 3
+  },
+  "488500": {
+    "sector": "ETF",
+    "industry": "미국주식",
+    "v": 3
+  },
+  "489250": {
+    "sector": "ETF",
+    "industry": "배당",
+    "v": 3
+  },
+  "494670": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  },
+  "497780": {
+    "sector": "ETF",
+    "industry": "기타테마",
+    "v": 3
+  }
+}
