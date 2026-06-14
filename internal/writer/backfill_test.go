@@ -7,21 +7,24 @@ import (
 )
 
 func TestBackfillValues(t *testing.T) {
-	resolve := func(code string) (string, string) {
+	resolve := func(code, name string) (string, string) {
 		switch code {
 		case "214150":
 			return "의료·정밀기기", "의료용 기기 제조업"
 		case "487240":
-			return "ETF", ""
+			return "ETF", "미국주식" // 종목명 기반 ETF 분류
 		default:
 			return "", ""
 		}
 	}
-	got := backfillValues([]string{"214150", "", "487240"}, resolve)
+	got := backfillValues(
+		[]string{"214150", "", "487240"},
+		[]string{"클래시스", "", "KODEX 미국AI전력핵심설비"},
+		resolve)
 	want := [][]interface{}{
 		{"의료·정밀기기", "의료용 기기 제조업"},
 		{"", ""},
-		{"ETF", ""},
+		{"ETF", "미국주식"},
 	}
 	assert.Equal(t, want, got)
 }
@@ -35,11 +38,12 @@ func TestPadStockCode(t *testing.T) {
 	assert.Equal(t, "487240", padStockCode("487240")) // 6자리 숫자 → 그대로
 }
 
-func TestFirstColStrings(t *testing.T) {
+func TestColStrings(t *testing.T) {
 	vals := [][]interface{}{
-		{"005930"},
+		{"005930", "삼성전자"},
 		{}, // 빈 행
-		{"487240"},
+		{"487240", "KODEX 미국AI전력핵심설비"},
 	}
-	assert.Equal(t, []string{"005930", "", "487240"}, firstColStrings(vals))
+	assert.Equal(t, []string{"005930", "", "487240"}, colStrings(vals, 0))         // 코드(C)
+	assert.Equal(t, []string{"삼성전자", "", "KODEX 미국AI전력핵심설비"}, colStrings(vals, 1)) // 종목명(D)
 }

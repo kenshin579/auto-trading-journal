@@ -55,9 +55,10 @@ func enrichDomesticCodes(trades []model.Trade, r resolver) {
 	}
 }
 
-// bizcatResolver 는 종목코드 → (섹터, 산업) 조회를 추상화한다(테스트 스텁 주입용).
+// bizcatResolver 는 종목코드/종목명 → (섹터, 산업) 조회를 추상화한다(테스트 스텁 주입용).
+// 종목명은 9999 미분류 ETF 의 OpenAI 분류 입력으로 쓰인다.
 type bizcatResolver interface {
-	Resolve(code string) (sector, industry string)
+	Resolve(code, name string) (sector, industry string)
 }
 
 // enrichSectors 는 국내 거래(코드 있음)에 섹터/산업을 채운다(in-place). 해외/무코드는 스킵.
@@ -65,7 +66,7 @@ func enrichSectors(trades []model.Trade, r bizcatResolver) {
 	for i := range trades {
 		t := &trades[i]
 		if t.IsDomestic() && t.StockCode != "" {
-			t.Sector, t.Industry = r.Resolve(t.StockCode)
+			t.Sector, t.Industry = r.Resolve(t.StockCode, t.StockName)
 		}
 	}
 }
@@ -129,12 +130,12 @@ func scanCSVFiles(root string) ([]csvFile, error) {
 
 // processor 는 주식 데이터 처리기. (Python StockDataProcessor)
 type processor struct {
-	dryRun     bool
-	client     *sheets.Client
-	writer     *writer.Writer
-	summary    *summary.Generator
-	symbolRes  resolver
-	bizcatRes  bizcatResolver
+	dryRun      bool
+	client      *sheets.Client
+	writer      *writer.Writer
+	summary     *summary.Generator
+	symbolRes   resolver
+	bizcatRes   bizcatResolver
 	bizcatStore *bizcat.Resolver
 }
 
@@ -166,6 +167,8 @@ func newProcessor(ctx context.Context, dryRun bool, cfg *config.Config) (*proces
 	}
 
 	bc := bizcat.New("config/bizcat_cache.json")
+	// 9999 미분류 ETF(해외·테마)는 종목명 기반 OpenAI 분류. 키 없으면 no-op(지수명 폴백).
+	bc.EnableETFClassifier(cfg.OpenAIAPIKey(), cfg.OpenAI.Model)
 
 	return &processor{
 		dryRun:      dryRun,
