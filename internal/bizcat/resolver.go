@@ -123,8 +123,9 @@ func (r *Resolver) saveCache() error {
 
 // kisCallsPerSec 는 bizcat 업종 조회의 KIS 호출 빈도 상한.
 // 코드당 2회 호출(InquirePrice + SearchStockInfo, ETF 는 InquireEtfPrice 까지 3회)이라
-// SDK 기본(15/s)에선 초당 제한(EGW00201)에 걸린다. 보수적으로 낮춰 한 실행에 빠짐없이 채워지도록 한다.
-const kisCallsPerSec = 4
+// SDK 기본(15/s)에선 초당 제한(EGW00201)에 걸린다. ETF 3콜 버스트로 4/s 에서도 간헐
+// 초과가 나, 한 실행에 빠짐없이 채워지도록 3/s 로 더 낮춘다.
+const kisCallsPerSec = 3
 
 func kisFetch(classifyETF func(name string) (string, error)) func(code, name string) (string, string, error) {
 	client, err := kis.NewClientFromEnv(kis.WithRateLimit(kisCallsPerSec))
@@ -145,11 +146,13 @@ func kisFetch(classifyETF func(name string) (string, error)) func(code, name str
 		// ETF 는 표준산업분류가 비므로, 종목명을 OpenAI taxonomy 로 분류한다(분류기 없으면 지수명 폴백).
 		var etfIndustry string
 		if isETF(price, info) {
-			if etf, err := client.Domestic.InquireEtfPrice(ctx, domestic.InquireEtfPriceParams{Symbol: code}); err != nil {
-				slog.Warn("ETF 분류 조회 실패, 산업 빈 값 처리", "code", code, "err", err)
-			} else {
-				etfIndustry = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+			etf, err := client.Domestic.InquireEtfPrice(ctx, domestic.InquireEtfPriceParams{Symbol: code})
+			if err != nil {
+				// 일시적 실패(레이트리밋 등)를 빈 값으로 영구 캐시하지 않도록 fetch 실패로 전파한다
+				// (negative-cache 처리 → 다음 실행에 재시도).
+				return "", "", err
 			}
+			etfIndustry = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
 		}
 		sector, industry := extractSectorIndustry(price, info, etfIndustry)
 		return sector, industry, nil
