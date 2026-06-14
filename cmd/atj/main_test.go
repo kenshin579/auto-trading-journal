@@ -87,7 +87,7 @@ func TestScanCSVFiles_MissingDir(t *testing.T) {
 
 type stubBizcat map[string][2]string
 
-func (s stubBizcat) Resolve(code string) (string, string) {
+func (s stubBizcat) Resolve(code, name string) (string, string) {
 	v, ok := s[code]
 	if !ok {
 		return "", ""
