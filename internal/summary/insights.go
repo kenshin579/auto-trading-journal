@@ -14,6 +14,55 @@ import (
 
 // ── 섹션 4: 투자 지표 ──────────────────────────────────────
 
+// accountStockCount 는 계좌별 종목수 집계 결과.
+// held = 잔량이 남은(매수수량 > 매도수량) 종목 수, total = 한 번이라도 거래한 종목 수.
+type accountStockCount struct {
+	account     string
+	held, total int
+}
+
+// aggregateAccountStockCount 는 계좌별로 보유/거래 종목수를 세고 계좌명 사전식으로 정렬한다.
+// 종목 식별 키는 (종목코드, 종목명, 통화) — 해외처럼 코드가 비어도 이름으로 구분된다.
+func aggregateAccountStockCount(trades []model.Trade) []accountStockCount {
+	type stockKey struct{ code, name, currency string }
+	// 계좌 → 종목 → 순수량(매수 - 매도).
+	netQty := map[string]map[stockKey]float64{}
+	for _, t := range trades {
+		if t.TradeType != "매수" && t.TradeType != "매도" {
+			continue
+		}
+		byStock := netQty[t.Account]
+		if byStock == nil {
+			byStock = map[stockKey]float64{}
+			netQty[t.Account] = byStock
+		}
+		k := stockKey{t.StockCode, t.StockName, t.Currency}
+		if t.TradeType == "매수" {
+			byStock[k] += t.Quantity
+		} else {
+			byStock[k] -= t.Quantity
+		}
+	}
+
+	accounts := make([]string, 0, len(netQty))
+	for a := range netQty {
+		accounts = append(accounts, a)
+	}
+	sort.Strings(accounts)
+
+	result := make([]accountStockCount, 0, len(accounts))
+	for _, a := range accounts {
+		c := accountStockCount{account: a, total: len(netQty[a])}
+		for _, qty := range netQty[a] {
+			if qty > 1e-9 { // 부동소수 오차 방지
+				c.held++
+			}
+		}
+		result = append(result, c)
+	}
+	return result
+}
+
 // writeInvestmentMetrics 는 투자 지표 섹션을 작성한다.
 // (Python _write_investment_metrics, py:269-377)
 func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.Trade, startRow int) (int, error) {
@@ -60,6 +109,20 @@ func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.T
 		g.pieDataRange = rowRange{start: startRow, end: pieEndRow, ok: true}
 	} else {
 		g.pieDataRange = rowRange{}
+	}
+
+	// 계좌별 종목수 (보유 / 전체). 제목 행의 B·C 열이 헤더 역할을 한다.
+	if counts := aggregateAccountStockCount(trades); len(counts) > 0 {
+		rows = append(rows, []any{"계좌별 종목수", "보유", "전체"})
+		var heldSum, totalSum int
+		for _, c := range counts {
+			rows = append(rows, []any{"  " + c.account, c.held, c.total})
+			heldSum += c.held
+			totalSum += c.total
+		}
+		// 합계는 계좌별 값의 단순 합 — 같은 종목을 두 계좌에서 거래하면 2로 센다.
+		// (표의 세로 합과 어긋나지 않도록 의도한 것. 라벨로 그 의미를 명시한다.)
+		rows = append(rows, []any{"  합계(중복 포함)", heldSum, totalSum})
 	}
 
 	// 통화별 투자비중.
@@ -215,7 +278,10 @@ func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.T
 
 	// 데이터 작성.
 	endRow := startRow + len(rows) - 1
-	rng := fmt.Sprintf("%s!A%d:B%d", DashboardSheet, startRow, endRow)
+	// 계좌별 종목수 블록만 C열을 쓴다(나머지 행은 2열 ragged).
+	// 2열 행의 C열이 비워지는 것은 EnsureDashboardSheet 의 A1:Z 선(先)클리어에 의존한다
+	// — 클리어를 없애거나 쓰기 순서를 바꾸면 이전 실행의 C열 값이 남을 수 있다.
+	rng := fmt.Sprintf("%s!A%d:C%d", DashboardSheet, startRow, endRow)
 	if err := g.client.UpdateCells(ctx, rng, rows); err != nil {
 		return 0, err
 	}
