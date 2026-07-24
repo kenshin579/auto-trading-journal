@@ -120,7 +120,9 @@ func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.T
 			heldSum += c.held
 			totalSum += c.total
 		}
-		rows = append(rows, []any{"  합계", heldSum, totalSum})
+		// 합계는 계좌별 값의 단순 합 — 같은 종목을 두 계좌에서 거래하면 2로 센다.
+		// (표의 세로 합과 어긋나지 않도록 의도한 것. 라벨로 그 의미를 명시한다.)
+		rows = append(rows, []any{"  합계(중복 포함)", heldSum, totalSum})
 	}
 
 	// 통화별 투자비중.
@@ -277,6 +279,8 @@ func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.T
 	// 데이터 작성.
 	endRow := startRow + len(rows) - 1
 	// 계좌별 종목수 블록만 C열을 쓴다(나머지 행은 2열 ragged).
+	// 2열 행의 C열이 비워지는 것은 EnsureDashboardSheet 의 A1:Z 선(先)클리어에 의존한다
+	// — 클리어를 없애거나 쓰기 순서를 바꾸면 이전 실행의 C열 값이 남을 수 있다.
 	rng := fmt.Sprintf("%s!A%d:C%d", DashboardSheet, startRow, endRow)
 	if err := g.client.UpdateCells(ctx, rng, rows); err != nil {
 		return 0, err
