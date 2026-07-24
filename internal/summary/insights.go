@@ -111,6 +111,18 @@ func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.T
 		g.pieDataRange = rowRange{}
 	}
 
+	// 계좌별 종목수 (보유 / 전체). 제목 행의 B·C 열이 헤더 역할을 한다.
+	if counts := aggregateAccountStockCount(trades); len(counts) > 0 {
+		rows = append(rows, []any{"계좌별 종목수", "보유", "전체"})
+		var heldSum, totalSum int
+		for _, c := range counts {
+			rows = append(rows, []any{"  " + c.account, c.held, c.total})
+			heldSum += c.held
+			totalSum += c.total
+		}
+		rows = append(rows, []any{"  합계", heldSum, totalSum})
+	}
+
 	// 통화별 투자비중.
 	rows = append(rows, []any{"통화별 투자비중", ""})
 	currencyBuy := map[string]float64{}
@@ -264,7 +276,8 @@ func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.T
 
 	// 데이터 작성.
 	endRow := startRow + len(rows) - 1
-	rng := fmt.Sprintf("%s!A%d:B%d", DashboardSheet, startRow, endRow)
+	// 계좌별 종목수 블록만 C열을 쓴다(나머지 행은 2열 ragged).
+	rng := fmt.Sprintf("%s!A%d:C%d", DashboardSheet, startRow, endRow)
 	if err := g.client.UpdateCells(ctx, rng, rows); err != nil {
 		return 0, err
 	}
