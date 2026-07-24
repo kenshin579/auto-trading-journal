@@ -14,6 +14,55 @@ import (
 
 // ── 섹션 4: 투자 지표 ──────────────────────────────────────
 
+// accountStockCount 는 계좌별 종목수 집계 결과.
+// held = 잔량이 남은(매수수량 > 매도수량) 종목 수, total = 한 번이라도 거래한 종목 수.
+type accountStockCount struct {
+	account     string
+	held, total int
+}
+
+// aggregateAccountStockCount 는 계좌별로 보유/거래 종목수를 세고 계좌명 사전식으로 정렬한다.
+// 종목 식별 키는 (종목코드, 종목명, 통화) — 해외처럼 코드가 비어도 이름으로 구분된다.
+func aggregateAccountStockCount(trades []model.Trade) []accountStockCount {
+	type stockKey struct{ code, name, currency string }
+	// 계좌 → 종목 → 순수량(매수 - 매도).
+	netQty := map[string]map[stockKey]float64{}
+	for _, t := range trades {
+		if t.TradeType != "매수" && t.TradeType != "매도" {
+			continue
+		}
+		byStock := netQty[t.Account]
+		if byStock == nil {
+			byStock = map[stockKey]float64{}
+			netQty[t.Account] = byStock
+		}
+		k := stockKey{t.StockCode, t.StockName, t.Currency}
+		if t.TradeType == "매수" {
+			byStock[k] += t.Quantity
+		} else {
+			byStock[k] -= t.Quantity
+		}
+	}
+
+	accounts := make([]string, 0, len(netQty))
+	for a := range netQty {
+		accounts = append(accounts, a)
+	}
+	sort.Strings(accounts)
+
+	result := make([]accountStockCount, 0, len(accounts))
+	for _, a := range accounts {
+		c := accountStockCount{account: a, total: len(netQty[a])}
+		for _, qty := range netQty[a] {
+			if qty > 1e-9 { // 부동소수 오차 방지
+				c.held++
+			}
+		}
+		result = append(result, c)
+	}
+	return result
+}
+
 // writeInvestmentMetrics 는 투자 지표 섹션을 작성한다.
 // (Python _write_investment_metrics, py:269-377)
 func (g *Generator) writeInvestmentMetrics(ctx context.Context, trades []model.Trade, startRow int) (int, error) {

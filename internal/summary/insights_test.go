@@ -232,3 +232,47 @@ func TestFormatThousands(t *testing.T) {
 		}
 	}
 }
+
+// tr 는 테스트용 거래를 만든다(계좌별 종목수 집계용).
+func tr(account, tradeType, code, name, currency string, qty float64) model.Trade {
+	return model.Trade{
+		Account: account, TradeType: tradeType,
+		StockCode: code, StockName: name, Currency: currency, Quantity: qty,
+	}
+}
+
+func TestAggregateAccountStockCount(t *testing.T) {
+	trades := []model.Trade{
+		// 한국투자: 삼성전자 10주 매수 후 10주 전량 매도 → 거래O, 보유X
+		tr("한국투자증권_국내계좌", "매수", "005930", "삼성전자", "KRW", 10),
+		tr("한국투자증권_국내계좌", "매도", "005930", "삼성전자", "KRW", 10),
+		// 한국투자: SK하이닉스 5주 매수 후 2주 매도 → 부분매도, 보유O
+		tr("한국투자증권_국내계좌", "매수", "000660", "SK하이닉스", "KRW", 5),
+		tr("한국투자증권_국내계좌", "매도", "000660", "SK하이닉스", "KRW", 2),
+		// 미래에셋: AAPL 3주 매수(미매도) → 보유O
+		tr("미래에셋증권_해외계좌", "매수", "", "AAPL", "USD", 3),
+		// 미래에셋: TSLA 1주 매수(미매도), 코드 없음 → 이름으로 구분되어야 함
+		tr("미래에셋증권_해외계좌", "매수", "", "TSLA", "USD", 1),
+	}
+
+	got := aggregateAccountStockCount(trades)
+
+	want := []accountStockCount{
+		{account: "미래에셋증권_해외계좌", held: 2, total: 2},
+		{account: "한국투자증권_국내계좌", held: 1, total: 2},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len: got %d, want %d (%+v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d]: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestAggregateAccountStockCountEmpty(t *testing.T) {
+	if got := aggregateAccountStockCount(nil); len(got) != 0 {
+		t.Errorf("empty input: got %+v, want empty", got)
+	}
+}
