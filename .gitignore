@@ -42,7 +42,6 @@ token.dat
 *.mst
 *.zip
 
-*.egg-info
 .history
 reports
 logs
@@ -54,6 +53,3 @@ input/
 # Go
 /atj
 *.test
-# Python (백업 레퍼런스)
-__pycache__/
-*.pyc
