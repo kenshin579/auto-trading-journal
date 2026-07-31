@@ -214,8 +214,8 @@ input/
 1. `internal/parser/` 에 새 파서 파일 생성
 2. `Parser` 인터페이스(`Name`/`CanParse`/`Parse`) 구현
 3. `internal/parser/registry.go` 의 `registry` 슬라이스에 등록
-4. 테스트 + `testdata/` 픽스처 추가
-5. `tests/test_parsers.py` 에 테스트 추가
+4. `internal/parser/{broker}_test.go` 테스트 + 루트 `testdata/` CSV 픽스처 추가
+5. `make test` 로 전체 통과 확인
 
 ### Text Encoding (Korean Content)
 
