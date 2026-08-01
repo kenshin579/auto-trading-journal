@@ -24,7 +24,7 @@ var Categories = []string{
 	"반도체", "2차전지", "바이오·헬스케어", "AI·로봇", "신재생에너지", "원자력",
 	"방위·우주항공", "자동차", "금융", "건설", "필수소비재", "IT·인터넷",
 	// 자산군
-	"배당", "리츠·부동산", "원자재", "채권", "통화·단기금리",
+	"배당", "팩터·스타일", "리츠·부동산", "원자재", "채권", "통화·단기금리",
 	// 기타
 	"기타테마",
 }
@@ -40,23 +40,50 @@ var categorySet = func() map[string]bool {
 	return m
 }()
 
-// Validate 는 분류 결과가 taxonomy 안에 있으면 그대로, 아니면 FallbackCategory 로 정규화한다.
+// categoryNormalizer 는 모델 응답의 표기 흔들림을 흡수한다(전각 괄호, 내부 공백).
+// taxonomy 의 어떤 카테고리도 내부 공백을 갖지 않으므로 공백 제거는 안전하다.
+var categoryNormalizer = strings.NewReplacer(
+	"（", "(", "）", ")", " ", "", "\t", "", " ", "",
+)
+
+// Validate 는 분류 결과가 taxonomy 안에 있으면 그대로, 표기만 다르면 정규화해서,
+// 그래도 없으면 FallbackCategory 로 돌려준다.
+// taxonomy 밖 응답은 경고로 남긴다 — 조용히 기타테마로 흡수되면 지수 비중이 과소평가되는데
+// 그 사실을 알 방법이 없어진다.
 func Validate(s string) string {
 	s = strings.TrimSpace(s)
+	if s == "" {
+		return FallbackCategory
+	}
 	if categorySet[s] {
 		return s
 	}
+	if n := categoryNormalizer.Replace(s); categorySet[n] {
+		slog.Warn("ETF 카테고리 표기 정규화", "raw", s, "normalized", n)
+		return n
+	}
+	slog.Warn("ETF 카테고리가 taxonomy 밖 — 기타테마로 처리", "raw", s)
 	return FallbackCategory
 }
 
 const classifyTimeout = 30 * time.Second
 
 var systemPrompt = fmt.Sprintf(`당신은 ETF 분류 전문가입니다.
-ETF 종목명을 보고 아래 카테고리 중 정확히 하나로 분류하세요.
+ETF 종목명(한글 펀드명 또는 영문 펀드명)을 보고 아래 카테고리 중 정확히 하나로 분류하세요.
 
 사용 가능한 카테고리: %s
 
-분류 기준:
+먼저 아래 예외에 해당하는지 보세요. 해당하면 이름에 지수명이 들어 있어도 시장대표 지수로
+분류하지 마세요(지수를 그대로 추종하지 않기 때문입니다).
+- 커버드콜·프리미엄인컴: "커버드콜"/"타겟프리미엄"/Covered Call/Equity Premium Income/
+  Enhanced Income/Buffer → 배당.  예: "JPMorgan Nasdaq Equity Premium Income ETF"→배당
+- 레버리지·인버스: "곱버스"/"인버스"/2X/3X/Ultra/UltraPro/Bull/Bear/Inverse → 기타테마
+- 팩터·스타일: 성장주/가치주/퀄리티/모멘텀/저변동/동일가중/Growth/Value/Quality/Momentum/
+  Low Volatility/Equal Weight → 팩터·스타일.
+  단 배당 팩터(고배당·배당성장·Dividend Growth)는 배당
+- 소수 종목 집중 바스켓("Magnificent Seven"/TOP10 등) → 기타테마
+
+예외가 아니면 아래 기준으로 분류하세요.
 - 특정 섹터·테마가 핵심이면 지역보다 해당 테마 우선
   (반도체/2차전지/바이오·헬스케어/AI·로봇/신재생에너지/원자력/방위·우주항공/자동차/금융/건설/필수소비재/IT·인터넷).
   예: "미국반도체"→반도체, "글로벌AI"→AI·로봇.
@@ -65,13 +92,10 @@ ETF 종목명을 보고 아래 카테고리 중 정확히 하나로 분류하세
   "코스피200"/"코스닥150"/"KRX300"→한국주식,
   러셀2000·다우존스·미국 토탈마켓 등 그 외 미국 시장대표→미국주식(기타),
   그 외 국가·지역은 중국주식/일본주식/인도주식/베트남주식/글로벌주식.
-- 다음은 지수를 그대로 추종하지 않으므로 시장대표로 분류하지 마세요.
-  · 커버드콜·프리미엄인컴(JEPI/JEPQ/"커버드콜"/"타겟프리미엄")→배당
-  · 레버리지·인버스("2X"/"3X"/"UltraPro"/"곱버스"/"인버스")→기타테마
-  · 팩터·스타일(성장주/가치주/퀄리티/모멘텀/저변동/동일가중)→기타테마,
-    단 배당 팩터(배당성장·고배당·SCHD)는 배당
 - 은행/보험/증권은 금융. 채권/국채/회사채는 채권. 단기자금/CD금리/통화는 통화·단기금리.
-- 금·은·원유 등 상품은 원자재. 리츠·부동산·인프라는 리츠·부동산.
+- 원자재는 금·은·원유 등 실물·선물에 직접 투자하는 경우만입니다. 채굴·정유·에너지·소재 등
+  관련 기업 주식에 투자하면 원자재가 아니라 해당 테마(원자력 등) 또는 기타테마입니다.
+- 리츠·부동산·인프라는 리츠·부동산.
 - 애매하거나 위에 없으면 기타테마.
 
 반드시 JSON 으로만 응답: {"category": "<카테고리>"}`, strings.Join(Categories, ", "))
