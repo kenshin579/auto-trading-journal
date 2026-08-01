@@ -126,7 +126,11 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 	p, err := r.fetch(symbol)
 	if err != nil {
 		r.markFailed(symbol)
-		slog.Warn("FMP 프로필 조회 실패, 빈 값 처리", "symbol", symbol, "err", err)
+		// 클라이언트 자체가 없으면 심볼마다 같은 경고가 반복된다(수십~수백 줄).
+		// 생성 시점에 이미 한 번 경고했으므로 per-symbol 경고는 생략한다.
+		if !errors.Is(err, errNoFMPClient) {
+			slog.Warn("FMP 프로필 조회 실패, 빈 값 처리", "symbol", symbol, "err", err)
+		}
 		return cached.Sector, cached.Industry // 자가치유 재조회 실패 시 기존 캐시 보존
 	}
 
@@ -216,11 +220,19 @@ func (r *Resolver) saveCache() error {
 	return enc.Encode(out)
 }
 
+// errNoFMPClient 는 FMP 클라이언트가 없어(키 미설정 등) 조회 자체가 불가능함을 뜻한다.
+var errNoFMPClient = errors.New("fmpcat: FMP 클라이언트 없음")
+
+// noClientFetch 는 FMP 클라이언트가 없을 때(키 미설정 등) 쓰는 fetch.
+// "성공 + 빈 값"이 아니라 에러다 — 빈 값을 성공으로 캐시하면 캐시 항목이 전부 빈 값으로
+// 덮이고, saveCache 가 빈 항목을 제외하므로 캐시 파일이 통째로 비워진다.
+func noClientFetch(string) (profile, error) { return profile{}, errNoFMPClient }
+
 func fmpFetch() func(string) (profile, error) {
 	client, err := fmp.NewClientFromEnv()
 	if err != nil {
 		slog.Warn("FMP 클라이언트 생성 실패, 해외 섹터 보강 비활성화", "err", err)
-		return func(string) (profile, error) { return profile{}, nil }
+		return noClientFetch
 	}
 	return func(symbol string) (profile, error) {
 		p, err := client.Company.Profile(context.Background(), symbol)

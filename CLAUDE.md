@@ -76,7 +76,10 @@ internal/
 - 산업 = `Domestic.SearchStockInfo(code,"300")` 의 **표준산업분류**(`StdIdstClsfCdName`, 예 "의료용 기기 제조업"). ⚠️ 지수업종(대/중/소분류)은 커버리지가 낮아 미사용.
 - **ETF 산업** = **펀드 종목명을 OpenAI taxonomy 로 분류**(`internal/etfclass`, 고정 28종(미국 시장대표는 S&P500/나스닥/미국주식(기타)로 분리, 팩터·스타일 포함): 한국/S&P500/나스닥/미국주식(기타)/중국/일본/인도/베트남/글로벌주식 · 반도체/2차전지/바이오·헬스케어/AI·로봇/신재생에너지/원자력/방위·우주항공/자동차/금융/건설/필수소비재/IT·인터넷 · 배당/팩터·스타일/리츠·부동산/원자재/채권/통화·단기금리 · 기타테마). 코드 분류 여부와 무관하게 종목명으로 통일(verbose 한 KRX 지수명도 정규화). 분류기 미설정/실패 시 `Domestic.InquireEtfPrice` 의 지수명(`EtfRprsBstpKorIsnm`, "KRX " 접두사 제거) 폴백. ETF 판별은 `EtfDvsnCd != ""`(+ bstp_kor_isnm "ETF…" 접두사 백업).
 - 즉 코드당 InquirePrice + SearchStockInfo **2회 호출**(ETF 는 InquireEtfPrice 까지 **3회**). KIS 초당 제한(EGW00201) 회피를 위해 `WithRateLimit(kisCallsPerSec=3)` 로 호출을 페이싱하고, 같은 실행 내 실패 코드는 negative-cache(`failed`, 비영구)로 재조회를 막는다. 성공 결과는 `config/bizcat_cache.json` 에 영구 캐시(실행 간 유지, 스키마 `v5` — 구버전 항목은 1회 재조회). 구버전 캐시의 `{섹터:"ETF", 산업:""}` 항목은 자가치유로 재조회되어 산업이 채워진다(`needsRefresh`).
-- 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. KIS 키 없거나 실패 시 빈 값(회복력).
+- 영구 캐시 `config/bizcat_cache.json`, lazy `kis.NewClientFromEnv()`. **KIS 키가 없거나 조회가 실패하면
+  빈 값을 캐시하지 않고 기존 캐시 값을 보존한다**(그 실행의 해당 행만 공란). 빈 값을 성공으로 캐시하면
+  `needsRefresh` 가 `섹터=="ETF"` 만 보므로 `{섹터:"", 산업:""}` 항목이 재조회 대상에서 영구히 빠지고,
+  그 빈 값이 캐시 파일과 `make backfill-sectors` 를 통해 시트 열까지 덮어쓴다.
 - atj 는 `ensureKISFileToken`(main.go)으로 **파일 토큰 강제** — env가 redis 라도 Redis 의존 없이 동작.
 
 **internal/fmpcat** (`resolver.go`) — 해외 종목 섹터/산업:
@@ -88,8 +91,11 @@ internal/
   판별하면 BDC(MAIN·HTGC·BXSL)·자산운용사(BN)가 오분류되므로 플래그를 쓴다.
 - 분류가 **일시 실패**하면 캐시하지 않고 다음 실행에 재시도한다(taxonomy 밖 값을 영구 캐시하면
   그 종목이 대시보드에서 영구히 미분류로 남는다).
-- not-found(`fmp.ErrNotFound`)·일시적 오류는 빈 값 반환. 영구 캐시 `config/fmpcat_cache.json`
-  (스키마 `v2` — 구버전 항목은 1회 재조회), lazy `fmp.NewClientFromEnv()`(`FMP_API_KEY`).
+- not-found(`fmp.ErrNotFound`)는 빈 값 반환(인메모리에만 캐시). **FMP 키가 없거나 조회가 실패하면
+  빈 값을 캐시하지 않고 기존 캐시 항목을 그대로 둔다** — 빈 값을 캐시하면 `saveCache` 가 빈 항목을
+  제외하므로 캐시 파일이 통째로 비워진다.
+- 영구 캐시 `config/fmpcat_cache.json`(스키마 `v2` — 구버전 항목은 1회 재조회),
+  lazy `fmp.NewClientFromEnv()`(`FMP_API_KEY`).
 
 **internal/parser** (`parser.go`, `mirae.go`, `hankook.go`, `registry.go`):
 - `Parser` 인터페이스(Name/CanParse/Parse), `DetectParser`(헤더 기반 자동 선택, 순서 Mirae국내→Mirae해외→Hankook)

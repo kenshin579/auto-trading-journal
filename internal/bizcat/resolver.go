@@ -5,6 +5,7 @@ package bizcat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
@@ -84,7 +85,11 @@ func (r *Resolver) Resolve(code, name string) (string, string) {
 			r.failed = map[string]bool{}
 		}
 		r.failed[code] = true
-		slog.Warn("업종 조회 실패, 빈 값 처리", "code", code, "err", err)
+		// 클라이언트 자체가 없으면 종목마다 같은 경고가 반복된다(수백 줄).
+		// 생성 시점에 이미 한 번 경고했으므로 per-code 경고는 생략한다.
+		if !errors.Is(err, errNoKISClient) {
+			slog.Warn("업종 조회 실패, 빈 값 처리", "code", code, "err", err)
+		}
 		return cached.Sector, cached.Industry // 자가치유 재조회 실패 시 기존 캐시 보존
 	}
 	r.cache[code] = entry{Sector: sector, Industry: industry, Version: etfCacheVersion}
@@ -130,11 +135,20 @@ func (r *Resolver) saveCache() error {
 // 초과가 나, 한 실행에 빠짐없이 채워지도록 3/s 로 더 낮춘다.
 const kisCallsPerSec = 3
 
+// errNoKISClient 는 KIS 클라이언트가 없어(키 미설정 등) 조회 자체가 불가능함을 뜻한다.
+var errNoKISClient = errors.New("bizcat: KIS 클라이언트 없음")
+
+// noClientFetch 는 KIS 클라이언트가 없을 때(키 미설정 등) 쓰는 fetch.
+// "성공 + 빈 값"이 아니라 에러다 — 빈 값을 성공으로 캐시하면 needsRefresh 가 그 항목을
+// 재조회 대상에서 빼버려(Sector != "ETF") 영구 고착되고, 그 빈 값이 캐시 파일과
+// 시트의 섹터/산업 열까지 덮어쓴다.
+func noClientFetch(code, name string) (string, string, error) { return "", "", errNoKISClient }
+
 func kisFetch(classifyETF etfclass.Classifier) func(code, name string) (string, string, error) {
 	client, err := kis.NewClientFromEnv(kis.WithRateLimit(kisCallsPerSec))
 	if err != nil {
 		slog.Warn("KIS 클라이언트 생성 실패, 업종 보강 비활성화", "err", err)
-		return func(code, name string) (string, string, error) { return "", "", nil }
+		return noClientFetch
 	}
 	return func(code, name string) (string, string, error) {
 		ctx := context.Background()

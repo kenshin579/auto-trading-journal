@@ -103,6 +103,34 @@ func TestResolve_ErrorNegativeCache(t *testing.T) {
 	assert.Equal(t, 1, calls, "실패 심볼은 같은 실행 내 1회만")
 }
 
+// FMP 클라이언트가 없으면(키 미설정) 조회는 "성공+빈 값"이 아니라 실패여야 한다.
+// 빈 값을 성공으로 캐시하면 캐시 항목이 전부 빈 값으로 덮이고, saveCache 가 빈 항목을
+// 제외하므로 git 추적 캐시 파일이 통째로 비워진다(시트도 백필 전까지 공란).
+func TestNoClientFetch_ReturnsError(t *testing.T) {
+	_, err := noClientFetch("AAPL")
+	require.Error(t, err, "클라이언트 없음은 성공이 아니다")
+	assert.ErrorIs(t, err, errNoFMPClient)
+}
+
+// 클라이언트가 없으면 기존 캐시 항목을 빈 값으로 덮지 않는다(구버전 항목도 그대로 둔다).
+func TestResolve_NoClientDoesNotOverwriteCache(t *testing.T) {
+	old := entry{Sector: "Financial Services", Industry: "Asset Management - Global"} // v0 → 재조회 대상
+	r := &Resolver{cache: map[string]entry{"QQQM": old}, fetch: noClientFetch}
+	r.Resolve("QQQM", "USD")
+	assert.Equal(t, old, r.cache["QQQM"], "캐시가 덮이지 않음")
+	assert.False(t, r.dirty, "실패는 파일에 기록되지 않음")
+}
+
+// 캐시가 없던 심볼도 빈 값으로 캐시되지 않는다(다음 실행에 재시도해야 한다).
+func TestResolve_NoClientDoesNotCacheEmpty(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: noClientFetch}
+	s, i := r.Resolve("AAPL", "USD")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "AAPL", "빈 값을 캐시하지 않는다")
+	assert.False(t, r.dirty)
+}
+
 // 빈 결과(미커버/미지원)는 파일에 영구화하지 않는다(노이즈 방지).
 func TestSaveCache_OmitsEmptyEntries(t *testing.T) {
 	dir := t.TempDir()

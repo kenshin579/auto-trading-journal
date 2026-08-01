@@ -177,6 +177,39 @@ func TestResolve_StaleETFRefetchFailureKeepsCached(t *testing.T) {
 	assert.Equal(t, "S&P 500", i)
 }
 
+// KIS 클라이언트가 없으면(키 미설정) 조회는 "성공+빈 값"이 아니라 실패여야 한다.
+// 빈 값을 성공으로 캐시하면 needsRefresh 가 그 항목(Sector != "ETF")을 재조회 대상에서
+// 빼버려 영구 고착되고, saveCache 가 git 추적 캐시 파일에 빈 값을 기록하며,
+// backfill 이 시트의 섹터/산업 열을 공란으로 덮어쓴다.
+func TestNoClientFetch_ReturnsError(t *testing.T) {
+	_, _, err := noClientFetch("069500", "KODEX 200")
+	require.Error(t, err, "클라이언트 없음은 성공이 아니다")
+	assert.ErrorIs(t, err, errNoKISClient)
+}
+
+// 클라이언트가 없으면 기존 캐시를 빈 값으로 덮지 않는다(구버전 ETF 항목도 그대로 보존).
+func TestResolve_NoClientDoesNotOverwriteCache(t *testing.T) {
+	r := &Resolver{
+		cache: map[string]entry{"069500": {Sector: "ETF", Industry: "미국주식", Version: 3}}, // 구버전 → 재조회 대상
+		fetch: noClientFetch,
+	}
+	s, i := r.Resolve("069500", "KODEX 200")
+	assert.Equal(t, "ETF", s, "실패 시 기존 값 보존")
+	assert.Equal(t, "미국주식", i)
+	assert.Equal(t, entry{Sector: "ETF", Industry: "미국주식", Version: 3}, r.cache["069500"], "캐시가 덮이지 않음")
+	assert.False(t, r.dirty, "실패는 파일에 기록되지 않음")
+}
+
+// 캐시가 없던 코드도 빈 값으로 캐시되지 않는다(다음 실행에 재시도해야 한다).
+func TestResolve_NoClientDoesNotCacheEmpty(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: noClientFetch}
+	s, i := r.Resolve("005930", "삼성전자")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "005930", "빈 값을 영구 캐시하지 않는다")
+	assert.False(t, r.dirty)
+}
+
 func TestCacheSaveLoad_Roundtrip_PreservesKorean(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bizcat_cache.json")
