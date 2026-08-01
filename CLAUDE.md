@@ -118,8 +118,13 @@ internal/
   (1+2+4+8+16+32≈63초)으로 잡혀 있다(`retry_test.go` 의 `TestRetryWaitBudgetCoversQuotaWindow` 가 이 불변식을 지킨다).
 - `NewWithEndpoint` 는 테스트용 fake 서버(httptest)를 향하는 무인증 클라이언트다.
 
-**internal/writer** (`writer.go`, `headers.go`, `reader.go`):
+**internal/writer** (`writer.go`, `headers.go`, `reader.go`, `backfill.go`):
 - `EnsureSheetExists`, `GetExistingKeys`(중복키), `InsertTrades`(포맷 적용), `ReadAllTrades`(대시보드 입력), 국내/해외 헤더 상수
+- `BackfillSectors` 는 **조회 결과가 비면 시트의 기존 섹터/산업을 유지한다**(빈 값으로 덮지 않는다).
+  그래서 쓰기 전에 쓸 범위(국내 `E2:F`, 해외 `F2:G`)를 그대로 한 번 읽는다 — 시트당 읽기 3회.
+  키 미설정·일시 실패로 열이 지워지면 사용자가 손으로 채운 값까지 잃기 때문이다. 기존 값 읽기가
+  실패하면 그 시트는 **스킵**한다(모르는 채로 쓰면 덮어버린다). 유지한 행은 경고 로그로 남는다 —
+  옛 스키마 값이 남아 대시보드 지수 분류가 틀어질 수 있으므로 키를 갖춰 재실행할 신호다.
 - `ReadAllTrades` 는 읽기 쿼터를 아끼기 위해 **시트당 그리드 조회 1회**(`A1:Q10000`, 헤더=1행)만 쓴다.
   또한 조회 실패를 스킵하지 않고 **에러로 전파**한다 — 일부 시트만 실패한 채 진행하면 대시보드가
   부분 데이터로 통째로 재작성되어 기존 내용을 잃는다.
