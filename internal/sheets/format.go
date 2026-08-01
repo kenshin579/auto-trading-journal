@@ -31,18 +31,42 @@ type ColorRange struct {
 	Color    *gsheets.Color
 }
 
+// maxRetries 는 최초 1회 외에 추가로 시도하는 횟수다.
+//
+// Sheets 쿼터는 "분당 60회"(read/write 각각)라 버킷이 비면 **최대 60초를 기다려야**
+// 회복된다. 따라서 재시도 대기의 누적 합이 60초를 넘도록 잡는다
+// (1+2+4+8+16+32 ≈ 63초). retryWaitBudget 테스트가 이 불변식을 지킨다.
+const maxRetries = 6
+
+// retryWait 은 attempt(0-based) 회차의 백오프 대기 시간을 반환한다.
+// min(2**attempt + random(0,1), 64) 초 — Python _execute_with_retry 와 동일한 곡선.
+func retryWait(attempt int) time.Duration {
+	wait := math.Min(math.Pow(2, float64(attempt))+rand.Float64(), 64)
+	return time.Duration(wait * float64(time.Second))
+}
+
+// retrySleep 은 ctx 취소를 존중하며 d 만큼 대기한다. 테스트에서 교체 가능하도록 변수다.
+var retrySleep = func(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // executeWithRetry 는 API 요청을 실행하고 429/5xx 에러 시 지수 백오프로 재시도한다.
-// (Python _execute_with_retry, max_retries 기본 3)
+// (Python _execute_with_retry)
 //
-// Python 정책(modules/google_sheets_client.py:73-87):
-//   - 총 시도 = max_retries + 1 (즉 최초 1회 + 재시도 3회).
-//   - 재시도 가능 조건: HttpError status == 429 이고 attempt < max_retries.
-//   - 대기 = min(2**attempt + random(0,1), 64) 초.
+//   - 총 시도 = maxRetries + 1.
+//   - 재시도 가능 조건: HTTP status 429(쿼터 초과) 또는 일시적 5xx.
+//   - 그 외 에러는 즉시 반환.
 //
-// Go 포팅에서는 429 외에 일시적 5xx(500/502/503/504)도 재시도 대상으로 포함한다
-// (배치 batchUpdate 의 안정성을 위한 보수적 확장). 그 외 에러는 즉시 반환.
+// 읽기/쓰기 **모든** Sheets 호출이 이 함수를 거쳐야 한다. 하나라도 빠지면 쿼터 초과 시
+// 그 호출만 즉시 실패해 상위 로직이 부분 데이터로 진행하게 된다.
 func executeWithRetry(ctx context.Context, fn func() error) error {
-	const maxRetries = 3
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		lastErr = fn()
@@ -50,13 +74,8 @@ func executeWithRetry(ctx context.Context, fn func() error) error {
 			return nil
 		}
 		if attempt < maxRetries && isRetryable(lastErr) {
-			wait := math.Min(math.Pow(2, float64(attempt))+rand.Float64(), 64)
-			timer := time.NewTimer(time.Duration(wait * float64(time.Second)))
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return ctx.Err()
-			case <-timer.C:
+			if err := retrySleep(ctx, retryWait(attempt)); err != nil {
+				return err
 			}
 			continue
 		}

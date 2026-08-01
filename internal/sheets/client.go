@@ -24,10 +24,22 @@ type Client struct {
 
 // New 는 서비스 계정 키로 인증된 Client 를 생성한다. (Python __init__/_connect)
 func New(ctx context.Context, spreadsheetID, serviceAccountPath string) (*Client, error) {
-	svc, err := gsheets.NewService(ctx,
+	return newClient(ctx, spreadsheetID,
 		option.WithCredentialsFile(serviceAccountPath),
 		option.WithScopes(scope),
 	)
+}
+
+// NewWithEndpoint 는 지정한 엔드포인트를 향하는 무인증 Client 를 만든다(테스트용 fake 서버).
+func NewWithEndpoint(ctx context.Context, spreadsheetID, endpoint string) (*Client, error) {
+	return newClient(ctx, spreadsheetID,
+		option.WithEndpoint(endpoint),
+		option.WithoutAuthentication(),
+	)
+}
+
+func newClient(ctx context.Context, spreadsheetID string, opts ...option.ClientOption) (*Client, error) {
+	svc, err := gsheets.NewService(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("Google Sheets API 연결 실패: %w", err)
 	}
@@ -40,7 +52,12 @@ func New(ctx context.Context, spreadsheetID, serviceAccountPath string) (*Client
 
 // GetSpreadsheetMetadata 는 스프레드시트 전체 메타데이터를 반환한다. (Python get_spreadsheet_metadata)
 func (c *Client) GetSpreadsheetMetadata(ctx context.Context) (*gsheets.Spreadsheet, error) {
-	ss, err := c.service.Spreadsheets.Get(c.spreadsheetID).Context(ctx).Do()
+	var ss *gsheets.Spreadsheet
+	err := executeWithRetry(ctx, func() error {
+		var err error
+		ss, err = c.service.Spreadsheets.Get(c.spreadsheetID).Context(ctx).Do()
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("스프레드시트 메타데이터 조회 실패: %w", err)
 	}
@@ -118,10 +135,15 @@ func (c *Client) InsertColumns(ctx context.Context, sheetName string, startIdx, 
 // sheetName 과 rangeA1(예: "A2:O10000")을 받아 내부에서 "sheetName!rangeA1" 로 조합한다.
 func (c *Client) GetRawGridData(ctx context.Context, sheetName, rangeA1 string) (*gsheets.GridData, error) {
 	rangeName := fmt.Sprintf("%s!%s", sheetName, rangeA1)
-	resp, err := c.service.Spreadsheets.Get(c.spreadsheetID).
-		Ranges(rangeName).
-		Fields("sheets.data.rowData.values(effectiveValue,formattedValue)").
-		Context(ctx).Do()
+	var resp *gsheets.Spreadsheet
+	err := executeWithRetry(ctx, func() error {
+		var err error
+		resp, err = c.service.Spreadsheets.Get(c.spreadsheetID).
+			Ranges(rangeName).
+			Fields("sheets.data.rowData.values(effectiveValue,formattedValue)").
+			Context(ctx).Do()
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("시트 GridData 조회 실패: %w", err)
 	}
@@ -135,7 +157,12 @@ func (c *Client) GetRawGridData(ctx context.Context, sheetName, rangeA1 string) 
 
 // GetValues 는 지정한 A1 범위(예: "SheetName!A1:Z")의 값을 반환한다. (Python get_sheet_data)
 func (c *Client) GetValues(ctx context.Context, rangeA1 string) ([][]interface{}, error) {
-	resp, err := c.service.Spreadsheets.Values.Get(c.spreadsheetID, rangeA1).Context(ctx).Do()
+	var resp *gsheets.ValueRange
+	err := executeWithRetry(ctx, func() error {
+		var err error
+		resp, err = c.service.Spreadsheets.Values.Get(c.spreadsheetID, rangeA1).Context(ctx).Do()
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("시트 데이터 조회 실패: %w", err)
 	}
@@ -145,9 +172,12 @@ func (c *Client) GetValues(ctx context.Context, rangeA1 string) ([][]interface{}
 // UpdateCells 는 지정한 A1 범위에 값을 기록한다(USER_ENTERED). (Python update_cells)
 func (c *Client) UpdateCells(ctx context.Context, rangeA1 string, data [][]interface{}) error {
 	vr := &gsheets.ValueRange{Values: data}
-	_, err := c.service.Spreadsheets.Values.Update(c.spreadsheetID, rangeA1, vr).
-		ValueInputOption("USER_ENTERED").
-		Context(ctx).Do()
+	err := executeWithRetry(ctx, func() error {
+		_, err := c.service.Spreadsheets.Values.Update(c.spreadsheetID, rangeA1, vr).
+			ValueInputOption("USER_ENTERED").
+			Context(ctx).Do()
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("셀 업데이트 실패: %w", err)
 	}
@@ -164,7 +194,10 @@ func (c *Client) BatchUpdateValues(ctx context.Context, ranges map[string][][]in
 		ValueInputOption: "USER_ENTERED",
 		Data:             data,
 	}
-	_, err := c.service.Spreadsheets.Values.BatchUpdate(c.spreadsheetID, req).Context(ctx).Do()
+	err := executeWithRetry(ctx, func() error {
+		_, err := c.service.Spreadsheets.Values.BatchUpdate(c.spreadsheetID, req).Context(ctx).Do()
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("배치 업데이트 실패: %w", err)
 	}
@@ -173,8 +206,11 @@ func (c *Client) BatchUpdateValues(ctx context.Context, ranges map[string][][]in
 
 // ClearValues 는 지정한 A1 범위(예: "SheetName!A2:Z")의 값을 비운다. (Python clear_sheet)
 func (c *Client) ClearValues(ctx context.Context, rangeA1 string) error {
-	_, err := c.service.Spreadsheets.Values.Clear(c.spreadsheetID, rangeA1, &gsheets.ClearValuesRequest{}).
-		Context(ctx).Do()
+	err := executeWithRetry(ctx, func() error {
+		_, err := c.service.Spreadsheets.Values.Clear(c.spreadsheetID, rangeA1, &gsheets.ClearValuesRequest{}).
+			Context(ctx).Do()
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("시트 데이터 삭제 실패: %w", err)
 	}

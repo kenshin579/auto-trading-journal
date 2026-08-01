@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -11,13 +12,23 @@ import (
 	gsheets "google.golang.org/api/sheets/v4"
 )
 
+// tradeGridRange 는 매매일지 시트를 헤더 포함 1회에 읽는 범위다.
+// 국내 12컬럼(A~L), 해외 17컬럼(A~Q) 공통.
+const tradeGridRange = "A1:Q10000"
+
 // ReadAllTrades 는 모든 매매일지 시트에서 Trade 리스트를 읽어 반환한다.
 // 헤더 행(1행)을 검증하여 매매일지 시트만 식별한다. (Python read_all_trades)
 //
 //   - DomesticHeaders 일치 → 국내
 //   - ForeignHeaders 일치 → 해외
-//   - OldDomesticHeadersV1 일치 → 경고 로그 + 스킵
+//   - 구 포맷 헤더 → 자동 마이그레이션 후 재조회
 //   - 그 외 → 스킵(매매일지 시트 아님)
+//
+// 읽기 쿼터(분당 60회)를 아끼기 위해 **시트당 그리드 조회 1회**만 사용한다
+// (헤더는 조회 결과의 1행에서 얻는다).
+//
+// 조회 실패는 스킵하지 않고 **에러로 전파**한다. 일부 시트만 실패한 채 진행하면
+// 호출측(대시보드)이 부분 데이터로 시트를 통째로 재작성해 기존 내용을 잃는다.
 //
 // NFD/NFC 유니코드 중복 시트는 하나만 읽는다.
 func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
@@ -38,17 +49,17 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 		}
 		seen[normalized] = true
 
-		headerVals, err := w.client.GetValues(ctx, sheetName+"!A1:Q1")
+		grid, err := w.client.GetRawGridData(ctx, sheetName, tradeGridRange)
 		if err != nil {
-			slog.Error("헤더 조회 실패", "sheet", sheetName, "err", err)
-			continue
+			return nil, fmt.Errorf("시트 '%s' 읽기 실패: %w", sheetName, err)
 		}
-		headerRow := extractHeaderRow(headerVals)
+		headerRow := headerFromGrid(grid)
 		if len(headerRow) == 0 {
 			continue
 		}
 
 		var isForeign bool
+		var newHeader []string
 		switch {
 		case headersEqual(headerRow, DomesticHeaders):
 			isForeign = false
@@ -56,24 +67,25 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 			isForeign = true
 		case headersEqual(headerRow, OldDomesticHeadersV2),
 			headersEqual(headerRow, OldDomesticHeadersV1):
-			// 구 포맷 → 신 포맷 자동 마이그레이션 후 읽기.
-			if err := w.migrateSheet(ctx, sheetName, headerRow, DomesticHeaders); err != nil {
-				slog.Error("자동 마이그레이션 실패, 스킵", "sheet", sheetName, "err", err)
-				continue
-			}
-			isForeign = false
+			isForeign, newHeader = false, DomesticHeaders
 		case headersEqual(headerRow, OldForeignHeadersV1):
-			if err := w.migrateSheet(ctx, sheetName, headerRow, ForeignHeaders); err != nil {
-				slog.Error("자동 마이그레이션 실패, 스킵", "sheet", sheetName, "err", err)
-				continue
-			}
-			isForeign = true
+			isForeign, newHeader = true, ForeignHeaders
 		default:
 			slog.Debug("시트 스킵(매매일지 헤더 불일치)", "sheet", sheetName)
 			continue
 		}
 
-		trades := w.readTradesFromSheet(ctx, sheetName, isForeign, normalized)
+		// 구 포맷이면 마이그레이션 후 재조회(열 삽입으로 앞서 읽은 그리드가 무효화된다).
+		if newHeader != nil {
+			if err := w.migrateSheet(ctx, sheetName, headerRow, newHeader); err != nil {
+				return nil, fmt.Errorf("시트 '%s' 자동 마이그레이션 실패: %w", sheetName, err)
+			}
+			if grid, err = w.client.GetRawGridData(ctx, sheetName, tradeGridRange); err != nil {
+				return nil, fmt.Errorf("시트 '%s' 마이그레이션 후 읽기 실패: %w", sheetName, err)
+			}
+		}
+
+		trades := tradesFromGrid(grid, isForeign, normalized)
 		allTrades = append(allTrades, trades...)
 		kind := "국내"
 		if isForeign {
@@ -86,16 +98,10 @@ func (w *Writer) ReadAllTrades(ctx context.Context) ([]model.Trade, error) {
 	return allTrades, nil
 }
 
-// readTradesFromSheet 는 개별 매매일지 시트에서 Trade 리스트를 반환한다.
+// tradesFromGrid 는 헤더 포함 그리드(1행=헤더)에서 데이터 행만 Trade 로 변환한다.
 // (Python _read_trades_from_sheet) account 는 정규화된 시트 이름.
-func (w *Writer) readTradesFromSheet(ctx context.Context, sheetName string, isForeign bool, account string) []model.Trade {
-	// 국내 12컬럼(A~L), 해외 17컬럼(A~Q) — 공통 범위 A2:Q10000 사용.
-	grid, err := w.client.GetRawGridData(ctx, sheetName, "A2:Q10000")
-	if err != nil {
-		slog.Error("시트 데이터 읽기 실패", "sheet", sheetName, "err", err)
-		return nil
-	}
-	if grid == nil {
+func tradesFromGrid(grid *gsheets.GridData, isForeign bool, account string) []model.Trade {
+	if grid == nil || len(grid.RowData) <= 1 {
 		return nil
 	}
 
@@ -104,8 +110,8 @@ func (w *Writer) readTradesFromSheet(ctx context.Context, sheetName string, isFo
 		minCols = 17
 	}
 
-	trades := make([]model.Trade, 0)
-	for _, row := range grid.RowData {
+	trades := make([]model.Trade, 0, len(grid.RowData)-1)
+	for _, row := range grid.RowData[1:] { // 1행(헤더) 제외
 		values := row.Values
 		if len(values) < minCols {
 			continue
@@ -120,6 +126,26 @@ func (w *Writer) readTradesFromSheet(ctx context.Context, sheetName string, isFo
 		trades = append(trades, tr)
 	}
 	return trades
+}
+
+// headerFromGrid 는 그리드 1행을 헤더 문자열 리스트로 추출한다.
+// A1:Q 범위로 읽으면 실제 컬럼 수보다 뒤쪽 빈 셀이 딸려올 수 있으므로 후행 공백은 제거한다
+// (headersEqual 은 길이까지 비교한다).
+func headerFromGrid(grid *gsheets.GridData) []string {
+	if grid == nil || len(grid.RowData) == 0 {
+		return nil
+	}
+	values := grid.RowData[0].Values
+	out := make([]string, len(values))
+	for i, cell := range values {
+		if s, ok := cellEffective(cell).(string); ok {
+			out[i] = s
+		}
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // gridRowToPlain 은 그리드 셀 리스트를 []interface{} 로 변환한다.
