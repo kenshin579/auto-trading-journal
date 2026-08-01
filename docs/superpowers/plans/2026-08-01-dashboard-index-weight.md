@@ -2235,10 +2235,96 @@ func TestIndexWeightPieChartSpec_UsesYZColumns(t *testing.T) {
 Run: `make test && go vet ./... && make build`
 Expected: 전부 PASS
 
-- [ ] **Step 5: 드라이런으로 확인 (선택, 자격증명 있을 때)**
+- [ ] **Step 5: fake Sheets 서버로 배선 검증 (필수)**
 
-Run: `make dry`
-Expected: 로그에 `대시보드 지수 vs 나머지 작성 rows=10` 형태가 찍히고 에러 없음. 시트에는 반영되지 않는다.
+⚠️ **`make dry` 는 이 코드를 한 줄도 실행하지 않는다.** `cmd/atj/main.go` 의 `run` 이
+`if !p.dryRun { ... GenerateAll ... }` 구조라 드라이런은 대시보드 갱신 자체를 건너뛰고 로그만 남긴다.
+드라이런으로 "확인했다"고 기록하면 검증하지 않은 것을 검증했다고 남기는 셈이다.
+
+`writeIndexWeight`/`collectIndexWeightFormats` 는 순수 함수가 아니라 지금까지 커버리지가 0 이고,
+검증되지 않은 것이 범위 문자열(`대시보드!A{n}:E{m}`, `Y{n}:Z{m}`), 표와 헬퍼의 시작 행 정렬,
+반환 행 번호, 실패 경로다. **이 코드의 첫 실행이 사용자의 실제 스프레드시트가 되면 안 된다.**
+
+`internal/sheets` 에 이미 `NewWithEndpoint`(httptest 용 무인증 클라이언트)가 있고
+`internal/writer/reader_api_test.go` 와 `internal/sheets/retry_test.go` 가 그 패턴을 쓴다.
+그걸 따라 `internal/summary/index_weight_api_test.go` 를 만든다.
+
+검증할 것:
+- `UpdateCells` 가 **두 번** 호출되고, 요청된 범위가 `대시보드!A{startRow}:E{endRow}` 와
+  `대시보드!Y{startRow}:Z{hEnd}` 인가(행 번호를 픽스처에서 계산해 정확히 단언할 것)
+- 반환값이 `startRow + len(values)` 인가
+- `g.indexWeightPie` 가 `{start: startRow+1, end: hEnd, ok: true}` 인가
+- 서버가 500 을 돌려주면 에러가 전파되는가(그리고 그때 `indexWeightPie.ok` 가 false 인가)
+- 거래가 없으면 Y:Z 쓰기가 **생략**되는가(`UpdateCells` 1회만)
+
+- [ ] **Step 5B: Task 7 리뷰 반영 (로그 문구·라벨·포맷 경계)**
+
+`internal/summary/index_weight.go`:
+
+1. **`oversold` 경고에 조치를 담는다.** 현재 문구는 원인과 효과만 말하고 사용자가 뭘 해야 하는지가
+   없다. 또 "보유원금 0 처리"가 "보유원금 열 전체가 0"으로 읽힐 여지가 있다:
+
+```go
+		slog.Warn("매도수량 > 매수수량 — 기간 밖 매수분 누락으로 보임. 해당 종목의 보유원금이 0 으로 잡혀 "+
+			"실제보다 적게 표시된다. 더 긴 기간의 거래내역 CSV 를 input/ 에 넣고 재실행할 것",
+			"종목수", len(d.oversold), "상위", diagNames(d.oversold))
+```
+
+2. **`diagNames` 에 금액을 함께 싣는다.** 이름만으로는 "미분류 500만 원 중 첫 종목이 90%인지
+   10%인지" 를 알 수 없다:
+
+```go
+// diagNames 는 로그에 실을 상위 N 종목의 "이름(₩금액)" 목록.
+func diagNames(list []stockAmount) []string {
+	n := len(list)
+	if n > diagTopN {
+		n = diagTopN
+	}
+	names := make([]string, 0, n)
+	for _, s := range list[:n] {
+		names = append(names, fmt.Sprintf("%s(₩%s)", s.name, formatThousands(s.amount)))
+	}
+	return names
+}
+```
+
+(`formatThousands` 는 `internal/summary/insights.go` 에 이미 있다.)
+
+3. **미분류 행 라벨에 종목수를 실어 시트만으로 규모를 알 수 있게 한다.** 로그는 휘발성이라
+   시트에서 미분류를 본 시점엔 이미 사라졌을 수 있다. `indexWeightValues` 가 diag 를 받아
+   미분류 그룹 행만 `▸ 미분류 (3종목)` 로 쓴다:
+
+```go
+func indexWeightValues(rows []indexWeightRow, diag indexWeightDiag) ([][]any, []int) {
+	...
+		if r.bucket == "" {
+			label = "▸ " + r.group
+			if r.group == groupUnknown && len(diag.unclassified) > 0 {
+				label = fmt.Sprintf("▸ %s (%d종목)", r.group, len(diag.unclassified))
+			}
+			groupOffsets = append(groupOffsets, len(values))
+		}
+```
+
+4. **숫자 포맷 범위를 데이터 행부터로 좁힌다.** 현재 `startRow`(제목행)와 `startRow+1`(컬럼 헤더)에도
+   통화·백분율 포맷이 걸린다. 텍스트 셀이라 무해하지만 정확히는 `startRow+2` 부터다.
+   `collectIndexWeightFormats` 의 두 `build(...)` 호출에서 시작 행을 `startRow+2` 로 바꾼다
+   (단 `endRow >= startRow+2` 일 때만 — 거래가 없으면 데이터 행이 없다).
+
+5. **`insights.go` 의 로컬 `stockKey` 를 `acctStockKey` 로 개명한다.** 같은 이름의 타입이 한
+   패키지에 둘 있고(하나는 함수 로컬 3필드, 하나는 패키지 레벨 4필드), 새 주석이
+   "대시보드의 종목 단위 집계가 **모두** 이 키를 쓴다"고 없는 보편성을 주장한다. 로컬을 개명하고
+   `sections.go` 의 주석에 예외를 한 절 덧붙인다:
+
+```go
+// stockKey 는 "같은 종목"의 정의. 대시보드의 종목 단위 집계가 이 키를 쓴다
+// (한쪽만 바꾸면 섹션끼리 종목 수가 어긋난다). 예외: aggregateAccountStockCount 는
+// 계좌를 바깥 맵 키로 쓰므로 계좌를 뺀 acctStockKey 를 쓴다.
+```
+
+6. **전량 매도 포트폴리오에서 값이 전부 0 인 파이를 만들지 않는다.** `len(helper) > 1` 은
+   통과하지만 모든 `held` 가 0 이면 빈 차트가 그려진다. `writeIndexWeight` 의 헬퍼 조건에
+   "보유원금 합이 0 보다 큼"을 더한다.
 
 - [ ] **Step 6: 커밋**
 
