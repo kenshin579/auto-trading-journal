@@ -60,11 +60,11 @@ internal/
 
 ### Key Data Model
 
-**Trade** (dataclass):
-- 16개 필드: date, trade_type, stock_name, stock_code, quantity, price, amount, currency, exchange_rate, amount_krw, fee, tax, profit, profit_krw, profit_rate, account
-- `to_domestic_row()`: 국내 12컬럼 (일자, 구분, 종목코드, 종목명, **섹터, 산업**, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
-- `to_foreign_row()`: 해외 17컬럼 (종목명 뒤 **섹터/산업** 공란)
-- `duplicate_key()`: (date, trade_type, stock_name, quantity, price) 튜플
+**Trade** (Go struct, `internal/model/trade.go`):
+- 18개 필드: Date, TradeType, StockName, StockCode, Quantity, Price, Amount, Currency, ExchangeRate, AmountKRW, Fee, Tax, Profit, ProfitKRW, ProfitRate, Account, Sector, Industry
+- `ToDomesticRow()`: 국내 12컬럼 (일자, 구분, 종목코드, 종목명, **섹터, 산업**, 수량, 단가, 금액, 수수료, 손익금액, 수익률)
+- `ToForeignRow()`: 해외 17컬럼 (종목명 뒤 **섹터, 산업** — 국내는 KIS(`internal/bizcat`), 해외는 FMP(`internal/fmpcat`)로 채워지며, ETF/펀드는 양쪽 다 섹터="ETF" + taxonomy 산업으로 통일된다)
+- `DuplicateKey()`: (Date, TradeType, StockName, Quantity, Price) 로 만든 `DupKey`
 
 ### Package Responsibilities
 
