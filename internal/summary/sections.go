@@ -168,6 +168,14 @@ func (g *Generator) writeMonthlySummary(ctx context.Context, trades []model.Trad
 
 // ── 섹션 3: 종목별 현황 ──────────────────────────────────────
 
+// stockKey 는 "같은 종목"의 정의. 대시보드의 종목 단위 집계가 모두 이 키를 쓴다
+// (한쪽만 바꾸면 섹션끼리 종목 수가 어긋난다).
+type stockKey struct{ name, code, account, currency string }
+
+func stockKeyOf(t model.Trade) stockKey {
+	return stockKey{t.StockName, t.StockCode, t.Account, t.Currency}
+}
+
 // stockRow 는 (종목명, 종목코드, 계좌, 통화) 기준 집계 결과.
 type stockRow struct {
 	name, code, account, currency          string
@@ -178,13 +186,12 @@ type stockRow struct {
 // aggregateStock 는 (종목명, 종목코드, 계좌, 통화) 기준으로 집계하고 사전식 정렬한다.
 // 투자비중은 매수금액 / 전체 매수금액. (Python _write_stock_summary 의 집계/정렬, py:218-246)
 func aggregateStock(trades []model.Trade) []stockRow {
-	type key struct{ name, code, account, currency string }
 	type agg struct {
 		buyQty, buyAmount, sellQty, sellAmount, profit float64
 	}
-	groups := make(map[key]*agg)
+	groups := make(map[stockKey]*agg)
 	for _, t := range trades {
-		k := key{t.StockName, t.StockCode, t.Account, t.Currency}
+		k := stockKeyOf(t)
 		a := groups[k]
 		if a == nil {
 			a = &agg{}
@@ -206,7 +213,7 @@ func aggregateStock(trades []model.Trade) []stockRow {
 		totalBuyAmount += a.buyAmount
 	}
 
-	keys := make([]key, 0, len(groups))
+	keys := make([]stockKey, 0, len(groups))
 	for k := range groups {
 		keys = append(keys, k)
 	}

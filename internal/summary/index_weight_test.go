@@ -1,6 +1,7 @@
 package summary
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/kenshin579/auto-trading-journal/internal/etfclass"
@@ -118,7 +119,7 @@ func TestAggregateIndexWeight_LayoutAndTotals(t *testing.T) {
 		{StockName: "삼성전자", StockCode: "005930", Account: "국내", Currency: "KRW",
 			Sector: "전기·전자", Industry: "반도체 제조업", TradeType: "매수", Quantity: 10, AmountKRW: 1_000_000},
 	}
-	rows := aggregateIndexWeight(trades)
+	rows, _ := aggregateIndexWeight(trades)
 
 	byLabel := map[string]indexWeightRow{}
 	for _, r := range rows {
@@ -160,7 +161,7 @@ func TestAggregateIndexWeight_FullySoldHasZeroHeld(t *testing.T) {
 		{StockName: "QQQM", StockCode: "QQQM", Account: "해외", Currency: "USD",
 			Sector: "ETF", Industry: "나스닥", TradeType: "매도", Quantity: 10, AmountKRW: 1_200_000},
 	}
-	rows := aggregateIndexWeight(trades)
+	rows, _ := aggregateIndexWeight(trades)
 	for _, r := range rows {
 		if r.bucket == bucketNasdaq {
 			assert.Equal(t, 1_000_000.0, r.buy)
@@ -177,7 +178,7 @@ func TestAggregateIndexWeight_OversoldClampedToZero(t *testing.T) {
 		{StockName: "TIGER 코스피", StockCode: "277630", Account: "국내", Currency: "KRW",
 			Sector: "ETF", Industry: "한국주식", TradeType: "매도", Quantity: 30, AmountKRW: 330_000},
 	}
-	rows := aggregateIndexWeight(trades)
+	rows, _ := aggregateIndexWeight(trades)
 	for _, r := range rows {
 		assert.GreaterOrEqual(t, r.held, 0.0, r.bucket)
 	}
@@ -191,7 +192,7 @@ func TestAggregateIndexWeight_UnknownShownWhenNonZero(t *testing.T) {
 		{StockName: "SPYM", StockCode: "SPYM", Account: "해외", Currency: "USD",
 			Sector: "ETF", Industry: "S&P500", TradeType: "매수", Quantity: 1, AmountKRW: 1_000_000},
 	}
-	rows := aggregateIndexWeight(trades)
+	rows, _ := aggregateIndexWeight(trades)
 	var unknown *indexWeightRow
 	for i := range rows {
 		if rows[i].group == groupUnknown && rows[i].bucket == "" {
@@ -213,7 +214,7 @@ func TestAggregateIndexWeight_BlankSectorDoesNotPreempt(t *testing.T) {
 		{StockName: "SPYM", StockCode: "SPYM", Account: "해외", Currency: "USD",
 			Sector: "ETF", Industry: "S&P500", TradeType: "매수", Quantity: 1, AmountKRW: 500_000},
 	}
-	rows := aggregateIndexWeight(trades)
+	rows, _ := aggregateIndexWeight(trades)
 	for _, r := range rows {
 		if r.bucket == bucketSP500 {
 			assert.Equal(t, 1_000_000.0, r.buy, "두 행 모두 S&P500 로 집계")
@@ -226,5 +227,80 @@ func TestAggregateIndexWeight_BlankSectorDoesNotPreempt(t *testing.T) {
 
 // 거래가 없으면 빈 슬라이스.
 func TestAggregateIndexWeight_Empty(t *testing.T) {
-	assert.Empty(t, aggregateIndexWeight(nil))
+	rows, _ := aggregateIndexWeight(nil)
+	assert.Empty(t, rows)
+}
+
+// 미분류·과매도 종목이 진단에 잡히고 금액 내림차순으로 정렬된다.
+func TestAggregateIndexWeight_Diagnostics(t *testing.T) {
+	trades := []model.Trade{
+		{StockName: "미분류소액", StockCode: "A", Account: "해외", Currency: "EUR",
+			TradeType: "매수", Quantity: 1, AmountKRW: 100_000},
+		{StockName: "미분류거액", StockCode: "B", Account: "해외", Currency: "EUR",
+			TradeType: "매수", Quantity: 1, AmountKRW: 900_000},
+		{StockName: "과매도", StockCode: "C", Account: "국내", Currency: "KRW",
+			Sector: "ETF", Industry: "한국주식", TradeType: "매수", Quantity: 10, AmountKRW: 100_000},
+		{StockName: "과매도", StockCode: "C", Account: "국내", Currency: "KRW",
+			Sector: "ETF", Industry: "한국주식", TradeType: "매도", Quantity: 30, AmountKRW: 330_000},
+	}
+	_, diag := aggregateIndexWeight(trades)
+
+	if assert.Len(t, diag.unclassified, 2) {
+		assert.Equal(t, "미분류거액", diag.unclassified[0].name, "금액 내림차순")
+		assert.Equal(t, "미분류소액", diag.unclassified[1].name)
+	}
+	if assert.Len(t, diag.oversold, 1) {
+		assert.Equal(t, "과매도", diag.oversold[0].name)
+	}
+}
+
+// 상위 N 만 로그에 싣는다.
+func TestDiagNames_CapsAtTopN(t *testing.T) {
+	list := make([]stockAmount, diagTopN+3)
+	for i := range list {
+		list[i] = stockAmount{name: fmt.Sprintf("종목%d", i)}
+	}
+	assert.Len(t, diagNames(list), diagTopN)
+	assert.Len(t, diagNames(list[:2]), 2)
+}
+
+// 셀 값 생성: 제목행 + 컬럼헤더 + (그룹행은 "▸", 버킷행은 두 칸 들여쓰기).
+func TestIndexWeightValues(t *testing.T) {
+	rows := []indexWeightRow{
+		{group: groupIndex, bucket: "", buy: 100, held: 50, buyPct: 0.5, heldPct: 0.5},
+		{group: groupIndex, bucket: bucketSP500, buy: 100, held: 50, buyPct: 0.5, heldPct: 0.5},
+		{group: groupOther, bucket: "", buy: 100, held: 50, buyPct: 0.5, heldPct: 0.5},
+	}
+	values, groupOffsets := indexWeightValues(rows)
+
+	assert.Equal(t, "[지수 vs 나머지 투자]", values[0][0])
+	assert.Equal(t, []any{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"}, values[1])
+	assert.Equal(t, "▸ 지수", values[2][0])
+	assert.Equal(t, "  S&P500", values[3][0])
+	assert.Equal(t, "▸ 나머지", values[4][0])
+	assert.Equal(t, 100.0, values[2][1])
+	assert.Equal(t, 0.5, values[2][2])
+
+	// 그룹 행 오프셋(0-based, 제목행 기준) — 배경색 적용에 쓰인다
+	assert.Equal(t, []int{2, 4}, groupOffsets)
+}
+
+// 차트 헬퍼는 그룹 소계만, 보유원금 기준.
+func TestIndexWeightPieHelper(t *testing.T) {
+	rows := []indexWeightRow{
+		{group: groupIndex, bucket: "", held: 50},
+		{group: groupIndex, bucket: bucketSP500, held: 50},
+		{group: groupOther, bucket: "", held: 30},
+	}
+	helper := indexWeightPieHelper(rows)
+	assert.Equal(t, [][]any{
+		{"[차트데이터] 지수 vs 나머지", "보유원금"},
+		{"지수", 50.0},
+		{"나머지", 30.0},
+	}, helper)
+}
+
+// 거래가 없으면 헬퍼 데이터도 없다(제목 행만).
+func TestIndexWeightPieHelper_Empty(t *testing.T) {
+	assert.Len(t, indexWeightPieHelper(nil), 1)
 }

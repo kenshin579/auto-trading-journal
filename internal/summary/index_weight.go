@@ -1,10 +1,17 @@
 package summary
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
+
+	gsheets "google.golang.org/api/sheets/v4"
 
 	"github.com/kenshin579/auto-trading-journal/internal/etfclass"
 	"github.com/kenshin579/auto-trading-journal/internal/model"
+	"github.com/kenshin579/auto-trading-journal/internal/sheets"
 )
 
 // 그룹(상위 묶음). 미분류는 지수/나머지 어디에도 속하지 않는 독립 그룹이다.
@@ -117,19 +124,60 @@ type stockAgg struct {
 	sector, industry           string
 }
 
+// stockAmount 는 진단 로그용 (종목명, 금액) 쌍.
+type stockAmount struct {
+	name   string
+	amount float64
+}
+
+// indexWeightDiag 는 표에 나오지 않지만 사용자가 알아야 하는 신호.
+type indexWeightDiag struct {
+	unclassified []stockAmount // 미분류로 빠진 종목(누적매수 내림차순)
+	oversold     []stockAmount // 매도수량 > 매수수량 — 기간 밖 매수분 누락 의심(누적매수 내림차순)
+}
+
+// diagTopN 은 로그에 실을 상위 N 종목명. 전체를 찍으면 로그가 종목 수만큼 길어진다.
+const diagTopN = 5
+
+// logIndexWeightDiag 는 표에 안 나오는 신호를 경고로 남긴다.
+func logIndexWeightDiag(d indexWeightDiag) {
+	if len(d.unclassified) > 0 {
+		slog.Warn("지수 분류 미분류 종목 — OpenAI/FMP 키 또는 taxonomy 밖 카테고리 확인 필요",
+			"종목수", len(d.unclassified), "상위", diagNames(d.unclassified))
+	}
+	if len(d.oversold) > 0 {
+		slog.Warn("매도수량 > 매수수량 — 기간 밖 매수분이 빠진 것으로 보임(보유원금 0 처리)",
+			"종목수", len(d.oversold), "상위", diagNames(d.oversold))
+	}
+}
+
+func diagNames(list []stockAmount) []string {
+	n := len(list)
+	if n > diagTopN {
+		n = diagTopN
+	}
+	names := make([]string, 0, n)
+	for _, s := range list[:n] {
+		names = append(names, s.name)
+	}
+	return names
+}
+
 // aggregateIndexWeight 는 거래를 지수/나머지 버킷별로 집계한다.
 //
 // 보유 원금 = max(0, 매수수량-매도수량) × (총매수금액/총매수수량).
 // 버킷은 종목 단위로 한 번 정하므로 같은 종목의 거래는 모두 같은 칸에 들어간다.
 // 비중 분모에는 미분류도 포함된다(지수+나머지+미분류 = 100%).
-func aggregateIndexWeight(trades []model.Trade) []indexWeightRow {
-	type key struct{ code, name, account, currency string }
-	stocks := map[key]*stockAgg{}
+//
+// 두 번째 반환값은 표에 나오지 않는 진단 신호(미분류·과매도 종목)다.
+func aggregateIndexWeight(trades []model.Trade) ([]indexWeightRow, indexWeightDiag) {
+	var diag indexWeightDiag
+	stocks := map[stockKey]*stockAgg{}
 	for _, t := range trades {
 		if t.TradeType != "매수" && t.TradeType != "매도" {
 			continue
 		}
-		k := key{t.StockCode, t.StockName, t.Account, t.Currency}
+		k := stockKeyOf(t)
 		a := stocks[k]
 		if a == nil {
 			a = &stockAgg{}
@@ -149,7 +197,7 @@ func aggregateIndexWeight(trades []model.Trade) []indexWeightRow {
 		}
 	}
 	if len(stocks) == 0 {
-		return nil
+		return nil, diag
 	}
 
 	type sums struct{ buy, held float64 }
@@ -167,8 +215,14 @@ func aggregateIndexWeight(trades []model.Trade) []indexWeightRow {
 		s.held += held
 	}
 
-	for _, a := range stocks {
+	for k, a := range stocks {
 		group, bucket := bucketOf(a.sector, a.industry)
+		if group == groupUnknown {
+			diag.unclassified = append(diag.unclassified, stockAmount{k.name, a.buyAmount})
+		}
+		if a.sellQty > a.buyQty {
+			diag.oversold = append(diag.oversold, stockAmount{k.name, a.buyAmount})
+		}
 		held := 0.0
 		if a.buyQty > 0 {
 			remain := a.buyQty - a.sellQty
@@ -181,6 +235,18 @@ func aggregateIndexWeight(trades []model.Trade) []indexWeightRow {
 		totalBuy += a.buyAmount
 		totalHeld += held
 	}
+
+	// stocks 맵 순회는 비결정적이라 정렬이 없으면 로그 순서가 실행마다 흔들린다.
+	sortByAmountDesc := func(list []stockAmount) {
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].amount != list[j].amount {
+				return list[i].amount > list[j].amount
+			}
+			return list[i].name < list[j].name
+		})
+	}
+	sortByAmountDesc(diag.unclassified)
+	sortByAmountDesc(diag.oversold)
 
 	pct := func(v, total float64) float64 {
 		if total == 0 {
@@ -210,5 +276,90 @@ func aggregateIndexWeight(trades []model.Trade) []indexWeightRow {
 			buyPct: pct(s.buy, totalBuy), heldPct: pct(s.held, totalHeld),
 		})
 	}
-	return rows
+	return rows, diag
+}
+
+// indexWeightValues 는 시트에 쓸 A:E 셀 값과 그룹 행 오프셋(0-based)을 만든다.
+func indexWeightValues(rows []indexWeightRow) ([][]any, []int) {
+	values := [][]any{
+		{"[지수 vs 나머지 투자]", "", "", "", ""},
+		{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"},
+	}
+	var groupOffsets []int
+	for _, r := range rows {
+		label := "  " + r.bucket
+		if r.bucket == "" {
+			label = "▸ " + r.group
+			groupOffsets = append(groupOffsets, len(values))
+		}
+		values = append(values, []any{label, r.buy, r.buyPct, r.held, r.heldPct})
+	}
+	return values, groupOffsets
+}
+
+// indexWeightPieHelper 는 파이 차트용 (그룹, 보유원금) 데이터를 만든다(첫 행은 헤더).
+func indexWeightPieHelper(rows []indexWeightRow) [][]any {
+	helper := [][]any{{"[차트데이터] 지수 vs 나머지", "보유원금"}}
+	for _, r := range rows {
+		if r.bucket == "" {
+			helper = append(helper, []any{r.group, r.held})
+		}
+	}
+	return helper
+}
+
+// writeIndexWeight 는 "지수 vs 나머지 투자" 섹션을 작성한다.
+// 표는 A:E, 파이 차트용 헬퍼 데이터는 Y:Z 에 쓴다
+// (N:O=계좌별 파이, W:X=나라별 섹터 파이가 이미 쓰고 있고, 초기화 범위가 A1:Z 라 AA 이후는 안 지워진다).
+func (g *Generator) writeIndexWeight(ctx context.Context, trades []model.Trade, startRow int) (int, error) {
+	rows, diag := aggregateIndexWeight(trades)
+	values, groupOffsets := indexWeightValues(rows)
+
+	endRow := startRow + len(values) - 1
+	rng := fmt.Sprintf("%s!A%d:E%d", DashboardSheet, startRow, endRow)
+	if err := g.client.UpdateCells(ctx, rng, values); err != nil {
+		return 0, err
+	}
+
+	g.indexWeightPie = rowRange{}
+	if helper := indexWeightPieHelper(rows); len(helper) > 1 {
+		hEnd := startRow + len(helper) - 1
+		hRng := fmt.Sprintf("%s!Y%d:Z%d", DashboardSheet, startRow, hEnd)
+		if err := g.client.UpdateCells(ctx, hRng, helper); err != nil {
+			return 0, err
+		}
+		g.indexWeightPie = rowRange{start: startRow + 1, end: hEnd, ok: true}
+		// Z열(26) 보유원금 통화 포맷 — 차트 축의 과학적 표기 방지.
+		g.pendingRequests = append(g.pendingRequests, sheets.BuildNumberFormatRequests(
+			g.dashboardSheetID, []sheets.ColumnFormat{{Col: 26, Pattern: "₩#,##0"}}, startRow+1, hEnd)...)
+	}
+
+	g.collectIndexWeightFormats(startRow, endRow, groupOffsets)
+	logIndexWeightDiag(diag)
+	slog.Info("대시보드 지수 vs 나머지 작성", "rows", len(rows))
+	return startRow + len(values), nil
+}
+
+// collectIndexWeightFormats 는 표의 숫자 포맷(B·D=원화, C·E=백분율)과 헤더/그룹 배경색을 수집한다.
+func (g *Generator) collectIndexWeightFormats(startRow, endRow int, groupOffsets []int) {
+	sid := g.dashboardSheetID
+	build := sheets.BuildNumberFormatRequests
+	krw := []sheets.ColumnFormat{{Col: 2, Pattern: "₩#,##0"}, {Col: 4, Pattern: "₩#,##0"}}
+	pct := []sheets.ColumnFormat{
+		{Col: 3, Pattern: "0.00%", Type: "PERCENT"},
+		{Col: 5, Pattern: "0.00%", Type: "PERCENT"},
+	}
+	g.pendingRequests = append(g.pendingRequests, build(sid, krw, startRow, endRow)...)
+	g.pendingRequests = append(g.pendingRequests, build(sid, pct, startRow, endRow)...)
+
+	headerColor := &gsheets.Color{Red: 0.24, Green: 0.52, Blue: 0.78, ForceSendFields: []string{"Red", "Green", "Blue"}}
+	groupColor := &gsheets.Color{Red: 0.85, Green: 0.92, Blue: 0.98, ForceSendFields: []string{"Red", "Green", "Blue"}}
+	colorRanges := []sheets.ColorRange{
+		{StartRow: startRow, EndRow: startRow, StartCol: 1, EndCol: 5, Color: headerColor},
+	}
+	for _, off := range groupOffsets {
+		r := startRow + off
+		colorRanges = append(colorRanges, sheets.ColorRange{StartRow: r, EndRow: r, StartCol: 1, EndCol: 5, Color: groupColor})
+	}
+	g.pendingRequests = append(g.pendingRequests, sheets.BuildColorRequests(sid, colorRanges)...)
 }
