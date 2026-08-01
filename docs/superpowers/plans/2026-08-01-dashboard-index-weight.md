@@ -1993,6 +1993,19 @@ git commit -m "feat(summary): 대시보드에 지수 vs 나머지 섹션과 파�
   집계. 차트 데이터는 `Y:Z`(초기화 범위 `A1:Z` 안이어야 한다)
 ```
 
+- [ ] **Step 3B: 캐시 재조회 한계를 Troubleshooting 에 명시**
+
+`CLAUDE.md` 의 Troubleshooting 절에 항목을 추가한다. 이걸 모르면 사용자가 백필을 아무리 돌려도
+안 고쳐지는 이유를 찾느라 오래 헤맨다:
+
+```markdown
+### OpenAI 키를 나중에 추가했는데 ETF 산업이 그대로다
+`STOCK_DATA_OPENAI_API_KEY` 없이 실행하면 ETF 산업이 KIS 지수명으로 채워져 **현재 캐시 버전으로**
+저장된다. 나중에 키를 넣어도 `needsRefresh` 가 버전만 보므로 자동 재조회되지 않는다.
+`make backfill-sectors` 도 같은 캐시를 읽으므로 그것만으로는 갱신되지 않는다.
+`config/bizcat_cache.json` 의 ETF 항목을 지우거나 파일을 통째로 삭제한 뒤 백필을 실행할 것.
+```
+
 - [ ] **Step 4: 인코딩 확인**
 
 Run: `file -I CLAUDE.md`
@@ -2011,10 +2024,13 @@ git commit -m "docs: 해외 ETF 판별 방식 정정 및 지수 vs 나머지 섹
 
 캐시 버전이 올라가 자동 재조회되므로 캐시 파일을 지울 필요는 없다.
 
-- [ ] `make backfill-sectors` — 기존 시트 행의 섹터/산업 갱신
+- [ ] `make backfill-sectors 2>&1 | tee /tmp/backfill.log` — 기존 시트 행의 섹터/산업 갱신.
+      로그를 파일로 남겨야 아래 검수의 "경고 건수" 항목을 실제로 확인할 수 있다.
   - 국내 ETF 89건 KIS 재조회(코드당 3콜, 3 calls/s → 약 1~2분), 해외 105건 FMP 재조회,
     OpenAI ETF 재분류 약 124건
   - 로그에 `섹터/산업 백필 완료` 가 시트마다 찍히는지 확인
+  - 분류가 일시 실패한 종목은 **그 실행에서만** 옛 값(taxonomy 밖)이 남아 대시보드에 `미분류` 로
+    보이고 다음 실행에 자동 치유된다. 백필 직후 미분류가 조금 보이면 한 번 더 실행할 것
 - [ ] **백필 직후 `config/bizcat_cache.json` · `config/fmpcat_cache.json` 을 눈으로 검수한다.**
       이 기능의 정확도는 전적으로 LLM 프롬프트에 달려 있는데 CI 로 잡히는 것이 없다. 캐시가 곧
       산출물이므로 실입력 약 194건을 1회 확인하는 것이 픽스처 테스트보다 커버리지가 넓다.
