@@ -85,6 +85,18 @@ func needsRefresh(e entry) bool {
 	return e.Version < cacheVersion
 }
 
+// staleSafe 는 조회 실패 시 돌려줄 값을 정한다. 구버전 캐시 값은 ETF 판별(isEtf) 이전
+// 스키마라 그대로 쓰면 ETF 가 개별종목으로 오분류된다 — v0 의 ETF 값은
+// "Financial Services"/"Asset Management …" 라 대시보드 bucketOf 가 개별종목으로 본다.
+// 차라리 빈 값(미분류)으로 보내 표의 미분류 행과 진단 로그에 드러나게 한다.
+// 캐시 항목 자체는 건드리지 않는다(다음 실행에 자가치유).
+func staleSafe(cached entry) (string, string) {
+	if cached.Version < cacheVersion {
+		return "", ""
+	}
+	return cached.Sector, cached.Industry
+}
+
 // exchangeSuffix 는 통화로 FMP 거래소 접미사를 정한다. 현재 US/JP 만 지원
 // (그 외 통화는 미지원 → 공란). 보유 국가 추가 시 여기에 매핑을 늘린다.
 func exchangeSuffix(currency string) (string, bool) {
@@ -117,8 +129,9 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 		return cached.Sector, cached.Industry
 	}
 	if r.failed[symbol] {
-		// 이번 실행에서 이미 실패 → 재조회 안 함. 자가치유 대상이면 기존 캐시 보존.
-		return cached.Sector, cached.Industry
+		// 이번 실행에서 이미 실패 → 재조회 안 함. 아래 실패 경로와 같은 값을 돌려줘야
+		// 같은 티커가 행마다 다른 섹터로 시트에 들어가지 않는다.
+		return staleSafe(cached)
 	}
 	if r.fetch == nil {
 		r.fetch = fmpFetch()
@@ -131,7 +144,7 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 		if !errors.Is(err, errNoFMPClient) {
 			slog.Warn("FMP 프로필 조회 실패, 빈 값 처리", "symbol", symbol, "err", err)
 		}
-		return cached.Sector, cached.Industry // 자가치유 재조회 실패 시 기존 캐시 보존
+		return staleSafe(cached) // 현재 버전 캐시만 보존, 구버전은 미분류로
 	}
 
 	// not-found 는 fetch 가 zero profile+nil 로 반환 → 빈 값 캐시(saveCache 가 파일에서 제외).
@@ -143,7 +156,7 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 			// 대시보드에서 영구히 미분류로 남는다. 캐시하지 않고 다음 실행에 재시도한다.
 			r.markFailed(symbol)
 			slog.Warn("ETF 카테고리 분류 실패, 캐시하지 않음(다음 실행 재시도)", "symbol", symbol, "err", err)
-			return cached.Sector, cached.Industry
+			return staleSafe(cached)
 		}
 		e.IsETF = true
 		e.Sector = etfclass.SectorETF

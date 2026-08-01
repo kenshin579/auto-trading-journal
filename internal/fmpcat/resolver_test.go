@@ -131,6 +131,60 @@ func TestResolve_NoClientDoesNotCacheEmpty(t *testing.T) {
 	assert.False(t, r.dirty)
 }
 
+// staleSafe: 구버전 캐시 값은 ETF 판별(isEtf) 이전 스키마라 실패 시 그대로 쓰면
+// ETF 가 개별종목으로 오분류된다(섹터 "Financial Services" → bucketOf 는 개별종목).
+// 현재 버전 값만 보존하고 구버전은 빈 값(미분류)으로 내보낸다.
+func TestStaleSafe(t *testing.T) {
+	s, i := staleSafe(entry{Sector: "Financial Services", Industry: "Asset Management - Global"}) // v0
+	assert.Equal(t, "", s, "구버전 ETF 값은 개별종목으로 오분류되므로 미분류로 보낸다")
+	assert.Equal(t, "", i)
+
+	s, i = staleSafe(entry{Sector: "ETF", Industry: "나스닥", IsETF: true, Version: cacheVersion})
+	assert.Equal(t, "ETF", s, "현재 버전 값은 보존")
+	assert.Equal(t, "나스닥", i)
+
+	s, i = staleSafe(entry{}) // 캐시 없음
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+}
+
+// 구버전 캐시 + 재조회 실패 → 미분류(빈 값). 캐시 항목 자체는 손대지 않는다(다음 실행 자가치유).
+// 그대로 돌려주면 QQQM 같은 지수 ETF 가 조용히 개별종목으로 시트·대시보드에 기록되고,
+// logIndexWeightDiag 는 미분류만 경고하므로 아무 신호도 남지 않는다.
+func TestResolve_StaleCacheFetchFailureReturnsBlank(t *testing.T) {
+	old := entry{Sector: "Financial Services", Industry: "Asset Management - Global"} // v0 ETF
+	r := &Resolver{cache: map[string]entry{"QQQM": old}, fetch: func(string) (profile, error) {
+		return profile{}, assert.AnError
+	}}
+	s, i := r.Resolve("QQQM", "USD")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.Equal(t, old, r.cache["QQQM"], "캐시 항목은 그대로 둔다")
+
+	// negative-cache 경유(같은 실행 2회차)도 같은 값이어야 한다 —
+	// 같은 티커가 행마다 다른 값으로 시트에 들어가면 안 된다.
+	s, i = r.Resolve("QQQM", "USD")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+}
+
+// 분류 실패 경로도 마찬가지 — 구버전 캐시 값으로 되돌아가지 않는다.
+func TestResolve_StaleCacheClassifyFailureReturnsBlank(t *testing.T) {
+	old := entry{Sector: "Financial Services", Industry: "Asset Management - Income"} // v0 ETF
+	r := &Resolver{
+		cache: map[string]entry{"SCHD": old},
+		fetch: func(string) (profile, error) {
+			return profile{Sector: "Financial Services", Industry: "Asset Management - Income",
+				Name: "Schwab US Dividend Equity ETF", IsETF: true}, nil
+		},
+		classifyETF: func(string) (string, error) { return "", assert.AnError },
+	}
+	s, i := r.Resolve("SCHD", "USD")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.Equal(t, old, r.cache["SCHD"], "캐시 항목은 그대로 둔다")
+}
+
 // 빈 결과(미커버/미지원)는 파일에 영구화하지 않는다(노이즈 방지).
 func TestSaveCache_OmitsEmptyEntries(t *testing.T) {
 	dir := t.TempDir()

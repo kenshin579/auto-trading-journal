@@ -94,6 +94,10 @@ internal/
 - not-found(`fmp.ErrNotFound`)는 빈 값 반환(인메모리에만 캐시). **FMP 키가 없거나 조회가 실패하면
   빈 값을 캐시하지 않고 기존 캐시 항목을 그대로 둔다** — 빈 값을 캐시하면 `saveCache` 가 빈 항목을
   제외하므로 캐시 파일이 통째로 비워진다.
+- 재조회가 실패하면 **현재 버전 캐시 값만 보존**하고 구버전(v0) 값은 빈 값(미분류)으로 내보낸다
+  (`staleSafe`). v0 의 ETF 값은 `Financial Services`/`Asset Management …` 라 그대로 쓰면
+  대시보드 `bucketOf` 가 **개별종목**으로 보고, 지수 비중이 실제보다 낮게 나오면서
+  미분류 경고에도 안 잡힌다. 캐시 항목 자체는 그대로 둬 다음 실행에 자가치유된다.
 - 영구 캐시 `config/fmpcat_cache.json`(스키마 `v2` — 구버전 항목은 1회 재조회),
   lazy `fmp.NewClientFromEnv()`(`FMP_API_KEY`).
 
