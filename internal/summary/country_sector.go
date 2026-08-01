@@ -34,6 +34,7 @@ type countrySectorGroup struct {
 // 일반 종목은 섹터(KIS 업종 / FMP 영문) 그대로.
 func sectorKey(sector, industry string) string {
 	if sector == etfclass.SectorETF && industry != "" {
+		// "ETF·" 접두사는 패키지 간 계약이 아니라 표시 라벨이라 리터럴로 둔다.
 		return "ETF·" + industry
 	}
 	return sector

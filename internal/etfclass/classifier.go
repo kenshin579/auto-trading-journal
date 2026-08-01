@@ -1,4 +1,4 @@
-// Package etfclass 는 ETF 종목명을 고정 taxonomy 의 카테고리 하나로 분류한다.
+// Package etfclass 는 ETF 라벨링 계약(섹터 판별자 + 카테고리 taxonomy + 종목명 분류기)을 소유한다.
 // 국내(internal/bizcat)와 해외(internal/fmpcat) 가 같은 체계를 공유하기 위해 분리돼 있다.
 package etfclass
 
@@ -34,6 +34,10 @@ const FallbackCategory = "기타테마"
 
 // SectorETF 는 ETF/펀드로 판별된 종목의 섹터 값. bizcat·fmpcat 이 쓰고 summary 가 읽는
 // 패키지 간 계약이라 리터럴 대신 이 상수를 쓴다(한쪽만 바뀌면 지수 집계가 조용히 0 이 된다).
+//
+// 이 값은 config/*_cache.json 과 거래 시트에 문자열로 영속화된다. 바꾸면 기존 캐시·시트가
+// 전부 무효가 되고 needsRefresh 가 그걸 감지하지 못한다(체크 자체가 이 값에 의존) —
+// 바꿔야 한다면 캐시 삭제 + 시트 재생성이 함께 필요하다.
 const SectorETF = "ETF"
 
 var categorySet = func() map[string]bool {
