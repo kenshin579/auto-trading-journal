@@ -78,3 +78,11 @@ func TestValidate_NormalizesPunctuation(t *testing.T) {
 func TestValidate_FactorStyleCategory(t *testing.T) {
 	assert.Equal(t, "팩터·스타일", Validate("팩터·스타일"))
 }
+
+// 여러 예외에 걸리는 펀드(DGRO 는 "Dividend Growth" 와 "Growth" 양쪽)가 있으므로
+// 우선순위 진술과 예외 순서를 함께 고정한다.
+func TestClassifyRules_ExceptionPriorityIsStated(t *testing.T) {
+	assert.Contains(t, classifyRules, "여러 예외에 해당하면 위에 있는 것을 적용하세요")
+	assert.Less(t, strings.Index(classifyRules, "배당이 핵심인 펀드"),
+		strings.Index(classifyRules, "팩터·스타일:"), "배당 예외가 팩터보다 앞에 와야 한다")
+}

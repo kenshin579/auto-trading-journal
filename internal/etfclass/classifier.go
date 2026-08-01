@@ -40,7 +40,8 @@ var categorySet = func() map[string]bool {
 	return m
 }()
 
-// categoryNormalizer 는 모델 응답의 표기 흔들림을 흡수한다(전각 괄호, 내부 공백).
+// categoryNormalizer 는 모델 응답의 표기 흔들림을 흡수한다
+// (전각 괄호, ASCII 공백·탭, NBSP U+00A0, 전각 공백 U+3000).
 // taxonomy 의 어떤 카테고리도 내부 공백을 갖지 않으므로 공백 제거는 안전하다.
 var categoryNormalizer = strings.NewReplacer(
 	"（", "(", "）", ")", " ", "", "\t", "", " ", "", "　", "",
@@ -53,6 +54,7 @@ var categoryNormalizer = strings.NewReplacer(
 func Validate(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
+		slog.Warn("ETF 카테고리가 비어 있음 — 기타테마로 처리")
 		return FallbackCategory
 	}
 	if categorySet[s] {
@@ -75,6 +77,7 @@ var categoryList = strings.Join(Categories, ", ")
 // 카테고리 이름 때문에 무조건 통과하는 동어반복이 되지 않도록.
 const classifyRules = `먼저 아래 예외에 해당하는지 보세요. 해당하면 이름에 지수명이 들어 있어도
 시장대표 지수로 분류하지 마세요(지수를 그대로 추종하지 않기 때문입니다).
+여러 예외에 해당하면 위에 있는 것을 적용하세요.
 - 커버드콜·프리미엄인컴: "커버드콜"/"타겟프리미엄"/Covered Call/Equity Premium Income/
   Enhanced Income/Buffer → 배당.  예: "JPMorgan Nasdaq Equity Premium Income ETF"→배당
 - 배당이 핵심인 펀드: "배당"/"고배당"/"배당성장"/Dividend/Dividend Growth → 배당.

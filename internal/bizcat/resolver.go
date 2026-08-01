@@ -24,7 +24,8 @@ type entry struct {
 // etfCacheVersion 은 현재 ETF 산업 분류 스키마 버전. 이보다 낮은 ETF 캐시는 재조회한다.
 // v2: 코드분류(KRX명)+9999(OpenAI) 하이브리드. v3: 전부 OpenAI taxonomy 로 통일.
 // v4: 미국 시장대표를 S&P500/나스닥/미국주식(기타)로 세분(지수 비중 집계용).
-const etfCacheVersion = 4
+// v5: 분류 실패 시 폴백 값을 영구 캐시하던 버그 이전 항목 무효화 + 팩터·스타일 카테고리 추가.
+const etfCacheVersion = 5
 
 type Resolver struct {
 	mu          sync.Mutex
@@ -154,7 +155,10 @@ func kisFetch(classifyETF etfclass.Classifier) func(code, name string) (string, 
 				// (negative-cache 처리 → 다음 실행에 재시도).
 				return "", "", err
 			}
-			etfIndustry = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+			etfIndustry, err = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+			if err != nil {
+				return "", "", err
+			}
 		}
 		sector, industry := extractSectorIndustry(price, info, etfIndustry)
 		return sector, industry, nil
@@ -162,16 +166,25 @@ func kisFetch(classifyETF etfclass.Classifier) func(code, name string) (string, 
 }
 
 // resolveETFIndustry 는 ETF 산업 분류를 결정한다.
-//   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 OpenAI taxonomy 로 분류해 통일한다
-//     (예 "S&P500"/"나스닥"/"반도체"/"방위·우주항공"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
-//   - 분류기 미설정/실패 → KIS 지수명(stripKRXPrefix) 폴백(회복력).
-func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier) string {
-	if classify != nil {
-		if cat, err := classify(fundName); err == nil && cat != "" {
-			return cat
-		}
+//   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 taxonomy 로 분류해 통일한다
+//     (예 "S&P500"/"반도체"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
+//   - 분류기 미설정(nil) → KIS 지수명(stripKRXPrefix) 폴백. 설정 상태이므로 에러가 아니다.
+//   - 분류기가 있는데 실패 → 에러를 전파한다. 폴백 값(taxonomy 밖 지수명)을 영구 캐시하면
+//     그 종목이 다음 실행에도 재조회되지 않아 대시보드에서 영구히 미분류로 남기 때문이다.
+func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier) (string, error) {
+	if classify == nil {
+		return stripKRXPrefix(rprsName), nil
 	}
-	return stripKRXPrefix(rprsName)
+	cat, err := classify(fundName)
+	if err != nil {
+		return "", err
+	}
+	// etfclass.New 로 만든 분류기는 Validate 를 거쳐 빈 값을 반환하지 않지만,
+	// classify 는 주입되는 함수라 그 보장을 가정하지 않는다.
+	if cat == "" {
+		return stripKRXPrefix(rprsName), nil
+	}
+	return cat, nil
 }
 
 // stripKRXPrefix 는 KRX 업종명의 "KRX " 접두사를 제거한다. 예 "KRX 반도체"→"반도체", "종합"→"종합".

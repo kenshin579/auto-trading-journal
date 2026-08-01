@@ -92,26 +92,47 @@ func TestExtractSectorIndustry(t *testing.T) {
 }
 
 // resolveETFIndustry: 분류기가 있으면 코드 분류 여부와 무관하게 종목명 OpenAI 결과로 통일하고,
-// 분류기 미설정/실패 시에만 KIS 지수명(접두사 제거)으로 폴백한다.
+// 분류기 미설정(nil) 시에만 KIS 지수명(접두사 제거)으로 폴백한다. 분류기가 있는데 실패하면
+// 일시적 오류를 영구 캐시하지 않도록 에러를 전파한다.
 func TestResolveETFIndustry(t *testing.T) {
 	// 분류기 있으면 종목명 OpenAI 결과 사용
-	got := resolveETFIndustry("KRX 반도체", "KODEX 반도체",
+	got, err := resolveETFIndustry("KRX 반도체", "KODEX 반도체",
 		func(name string) (string, error) { return "반도체", nil })
+	assert.NoError(t, err)
 	assert.Equal(t, "반도체", got)
 
 	// 코드 분류였지만 verbose 한 KRX 지수명도 OpenAI 로 정규화된다
-	got = resolveETFIndustry("S&P 500 Future Index TR", "KODEX 미국S&P500선물",
-		func(name string) (string, error) { return "미국주식", nil })
-	assert.Equal(t, "미국주식", got)
+	got, err = resolveETFIndustry("S&P 500 Future Index TR", "KODEX 미국S&P500선물",
+		func(name string) (string, error) { return "S&P500", nil })
+	assert.NoError(t, err)
+	assert.Equal(t, "S&P500", got)
 
-	// 분류기 미설정(nil) → KIS 지수명 폴백(접두사 제거)
-	got = resolveETFIndustry("KRX 반도체", "KODEX 반도체", nil)
+	// 분류기 미설정(nil) → KIS 지수명 폴백(접두사 제거). 설정 상태이므로 에러가 아니다.
+	got, err = resolveETFIndustry("KRX 반도체", "KODEX 반도체", nil)
+	assert.NoError(t, err)
 	assert.Equal(t, "반도체", got)
 
-	// 분류기 실패 → 지수명 폴백
-	got = resolveETFIndustry("S&P 500", "KODEX 미국S&P500",
+	// 분류기가 있는데 실패 → 에러 전파(일시 오류를 영구 캐시하지 않도록)
+	_, err = resolveETFIndustry("S&P 500", "KODEX 미국S&P500",
 		func(name string) (string, error) { return "", assert.AnError })
-	assert.Equal(t, "S&P 500", got)
+	assert.Error(t, err, "일시적 분류 실패는 fetch 실패로 전파")
+}
+
+// 분류 실패는 기존 캐시를 덮어쓰지 않고, 다음 실행에 재시도할 수 있게 둔다.
+func TestResolve_ClassifyFailureDoesNotPoisonCache(t *testing.T) {
+	calls := 0
+	r := &Resolver{
+		cache: map[string]entry{},
+		fetch: func(code, name string) (string, string, error) {
+			calls++
+			return "", "", assert.AnError // 분류 실패가 fetch 실패로 전파된 상황
+		},
+	}
+	s, i := r.Resolve("069500", "KODEX 200")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "069500", "실패는 캐시에 남지 않는다")
+	assert.Equal(t, 1, calls)
 }
 
 func TestStripKRXPrefix(t *testing.T) {
