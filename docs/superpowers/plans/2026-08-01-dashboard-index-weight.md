@@ -1185,31 +1185,19 @@ git commit -m "feat(fmpcat): IsEtf/IsFund 로 해외 ETF 판별하고 국내와 
 
 ---
 
-### Task 4: main.go 에서 해외 ETF 분류기 활성화
+### Task 4: main.go 에서 해외 ETF 분류기 활성화 — **Task 3 에 흡수됨**
 
-**Files:**
-- Modify: `cmd/atj/main.go:189` 부근
+이 태스크는 Task 3 커밋에 합쳐졌다. 분류기가 배선되지 않은 상태로 한 번이라도 실행하면
+해외 ETF 가 `entry{Sector:"ETF", Industry:"Asset Management - Bonds", Version:2}` 로 저장되고
+`needsRefresh` 가 false 라 **영구 고착**된다. `config/fmpcat_cache.json` 이 git 추적 파일이라
+그 오염이 커밋되어 배포될 수 있으므로, 두 변경 사이에 창을 두지 않는다.
 
-- [ ] **Step 1: 한 줄 추가**
-
-`cmd/atj/main.go` 에서 `fc := fmpcat.New("config/fmpcat_cache.json")` 바로 다음에 추가:
+추가된 한 줄(`cmd/atj/main.go`, `fc := fmpcat.New(...)` 다음):
 
 ```go
 	// 해외 ETF 는 종목명 기반 OpenAI 분류로 국내와 같은 카테고리 체계를 쓴다.
 	// 키 없으면 no-op(FMP 원본 산업 폴백).
 	fc.EnableETFClassifier(cfg.OpenAIAPIKey(), cfg.OpenAI.Model)
-```
-
-- [ ] **Step 2: 빌드 + 전체 테스트**
-
-Run: `make build && make test`
-Expected: 빌드 성공, 전체 PASS
-
-- [ ] **Step 3: 커밋**
-
-```bash
-git add cmd/atj/main.go
-git commit -m "feat(atj): 해외 ETF 카테고리 분류기 활성화"
 ```
 
 ---
@@ -2039,6 +2027,11 @@ git commit -m "docs: 해외 ETF 판별 방식 정정 및 지수 vs 나머지 섹
   - `S&P500` + `나스닥` + `미국주식(기타)` 합계가 백필 전 `미국주식`(15건)과 정합적인가
   - 커버드콜(JEPI·JEPQ)·레버리지·팩터 펀드가 지수 3종 안에 하나도 없는가
   - 실행 로그에 `ETF 카테고리가 taxonomy 밖` / `표기 정규화` 경고가 몇 건인가
+  - `GLDM`·`SGOV`·`SIL` 등 실물·트러스트형 상품이 `isEtf: true` 로 들어왔는가. FMP 는 그랜터
+    트러스트·ETN·CEF 를 `isEtf: false` 로 주는 경우가 있고, 그러면 개별종목 버킷으로 간다
+    (지수/나머지 그룹은 불변, 버킷 라벨만 틀림)
+  - `fmpcat` 에는 레이트리밋이 없다. 105건 연속 호출 중 429 를 맞으면 그 종목은 negative-cache 로
+    빠지고 **다음 실행에 재시도**된다 — 한 번에 안 끝나면 백필을 한 번 더 돌릴 것
 - [ ] `make run` — 대시보드에 새 섹션 반영
 - [ ] 시트에서 확인: `미분류` 줄이 보이면 그 금액만큼 분류가 빠진 것 — 로그의 경고로 원인 확인
 
