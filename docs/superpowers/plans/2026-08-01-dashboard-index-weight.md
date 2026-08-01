@@ -38,7 +38,9 @@
 
 ### Task 1: `internal/etfclass` 패키지 분리 (동작 변경 없음)
 
-국내(`bizcat`)와 해외(`fmpcat`) 가 같은 분류기를 써야 하므로 `bizcat` 밖으로 꺼낸다. 이 태스크는 **순수 이동**이다 — taxonomy 와 프롬프트는 Task 2 에서 바꾼다.
+국내(`bizcat`)와 해외(`fmpcat`) 가 같은 분류기를 써야 하므로 `bizcat` 밖으로 꺼낸다. 식별자 공개화와
+**프롬프트 첫 줄에서 "한국 상장" 한정 문구를 빼는 것**(이제 해외 ETF 도 분류한다) 외에는 내용을
+바꾸지 않는다 — taxonomy 와 나머지 프롬프트 문구는 Task 2 에서 바꾼다.
 
 **Files:**
 - Create: `internal/etfclass/classifier.go`
@@ -341,16 +343,182 @@ const etfCacheVersion = 4
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: 3}), "v3 는 미국 지수 세분 전이라 재분류")
 ```
 
-- [ ] **Step 6: 전체 테스트**
+- [ ] **Step 6: 공유 계약에 이름 붙이기 + 낡은 주석 정리**
 
-Run: `make test`
+`bizcat` 과 `fmpcat` 이 같은 함수 시그니처를 각자 선언하는 대신, 계약을 `etfclass` 한 곳에 둔다.
+`internal/etfclass/classifier.go` 의 `New` 위에 타입을 추가하고 반환 타입을 바꾼다:
+
+```go
+// Classifier 는 ETF 종목명을 카테고리로 분류하는 함수. nil 은 "분류기 비활성"을 뜻하며,
+// 호출부는 nil 일 때 각자의 폴백을 쓴다.
+type Classifier func(name string) (string, error)
+
+// New 는 ETF 종목명 → 카테고리 분류기를 만든다. apiKey 가 비면 nil 을 반환한다.
+// 결과는 호출부 영구 캐시에 저장돼 종목당 1회만 호출된다.
+func New(apiKey, model string) Classifier {
+```
+
+`Categories` 주석에 불변 조건을 명시한다(런타임 수정 시 `categorySet`/`systemPrompt` 와 조용히 어긋난다):
+
+```go
+// Categories 는 모든 ETF 를 종목명으로 분류할 고정 taxonomy.
+// 국내 시장/섹터 ETF 와 해외·테마 ETF 를 하나의 일관된 카테고리 체계로 통일한다.
+// 읽기 전용 — 런타임에 수정하지 말 것(categorySet/systemPrompt 가 init 시점에 이 값으로 고정된다).
+```
+
+`internal/bizcat/resolver.go:34` 의 필드 타입과 낡은 주석을 교체한다. "9999 미분류 ETF" 는 v2
+하이브리드 시절 표현으로, 지금은 코드 분류 여부와 무관하게 전부 분류기를 탄다:
+
+```go
+	classifyETF etfclass.Classifier // ETF 종목명 → taxonomy 카테고리 분류기(optional, nil 가능)
+```
+
+- [ ] **Step 7: 전체 테스트**
+
+Run: `make test && go vet ./...`
 Expected: PASS
 
-- [ ] **Step 7: 커밋**
+- [ ] **Step 8: 커밋**
 
 ```bash
 git add internal/etfclass internal/bizcat
 git commit -m "feat(etfclass): 미국 시장대표를 S&P500/나스닥/기타로 세분하고 지수 오분류 방지 규칙 추가"
+```
+
+---
+
+### Task 2B: 분류 일시 실패를 영구 캐시하지 않기 (bizcat)
+
+지금은 OpenAI 분류가 일시적으로 실패하면 `resolveETFIndustry` 가 조용히 KIS 지수명으로 폴백하고,
+그 값이 **현재 캐시 버전으로** 저장된다(`resolver.go:87`). `needsRefresh` 가 false 라 다음 실행에
+재시도되지 않으므로, **한 번 삐끗한 종목은 taxonomy 밖 값으로 영구 고정되어 대시보드에서 계속
+미분류 줄에 남는다.** 지수 비중을 보고 배분을 정하는 기능에서 이건 조용한 왜곡이다.
+
+구분해야 할 두 경우:
+- **분류기 nil**(OpenAI 키 없음) → 설정 상태이므로 매 실행 동일. 지수명 폴백을 캐시해도 된다.
+- **분류기 있는데 실패**(레이트리밋·타임아웃) → 일시적. 캐시하면 안 되고 다음 실행에 재시도해야 한다.
+
+두 번째를 KIS 조회 실패와 같은 경로(negative-cache, 기존 캐시 보존)로 보낸다.
+
+**Files:**
+- Modify: `internal/bizcat/resolver.go` (`resolveETFIndustry`, `kisFetch`)
+- Modify: `internal/bizcat/resolver_test.go`
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`internal/bizcat/resolver_test.go` 의 기존 `TestResolveETFIndustry` 를 새 시그니처에 맞게 교체한다
+(반환값이 2개가 된다):
+
+```go
+func TestResolveETFIndustry(t *testing.T) {
+	// 분류기 있으면 종목명 OpenAI 결과 사용
+	got, err := resolveETFIndustry("KRX 반도체", "KODEX 반도체",
+		func(name string) (string, error) { return "반도체", nil })
+	assert.NoError(t, err)
+	assert.Equal(t, "반도체", got)
+
+	// 코드 분류였지만 verbose 한 KRX 지수명도 OpenAI 로 정규화된다
+	got, err = resolveETFIndustry("S&P 500 Future Index TR", "KODEX 미국S&P500선물",
+		func(name string) (string, error) { return "S&P500", nil })
+	assert.NoError(t, err)
+	assert.Equal(t, "S&P500", got)
+
+	// 분류기 미설정(nil) → KIS 지수명 폴백(접두사 제거). 설정 상태이므로 에러가 아니다.
+	got, err = resolveETFIndustry("KRX 반도체", "KODEX 반도체", nil)
+	assert.NoError(t, err)
+	assert.Equal(t, "반도체", got)
+
+	// 분류기가 있는데 실패 → 에러 전파(일시 오류를 영구 캐시하지 않도록)
+	_, err = resolveETFIndustry("S&P 500", "KODEX 미국S&P500",
+		func(name string) (string, error) { return "", assert.AnError })
+	assert.Error(t, err, "일시적 분류 실패는 fetch 실패로 전파")
+}
+```
+
+이어서 캐시 오염 방지를 검증하는 테스트를 추가한다:
+
+```go
+// 분류 실패는 기존 캐시를 덮어쓰지 않고, 다음 실행에 재시도할 수 있게 둔다.
+func TestResolve_ClassifyFailureDoesNotPoisonCache(t *testing.T) {
+	calls := 0
+	r := &Resolver{
+		cache: map[string]entry{},
+		fetch: func(code, name string) (string, string, error) {
+			calls++
+			return "", "", assert.AnError // 분류 실패가 fetch 실패로 전파된 상황
+		},
+	}
+	s, i := r.Resolve("069500", "KODEX 200")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "069500", "실패는 캐시에 남지 않는다")
+	assert.Equal(t, 1, calls)
+}
+```
+
+- [ ] **Step 2: 테스트 실행 — 실패 확인**
+
+Run: `go test ./internal/bizcat/ -run 'TestResolveETFIndustry|TestResolve_ClassifyFailure' -v`
+Expected: FAIL — `resolveETFIndustry` 가 값 1개만 반환해 컴파일 에러
+
+- [ ] **Step 3: 구현**
+
+`internal/bizcat/resolver.go` 의 `resolveETFIndustry` 를 교체:
+
+```go
+// resolveETFIndustry 는 ETF 산업 분류를 결정한다.
+//   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 taxonomy 로 분류해 통일한다
+//     (예 "S&P500"/"반도체"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
+//   - 분류기 미설정(nil) → KIS 지수명(stripKRXPrefix) 폴백. 설정 상태이므로 에러가 아니다.
+//   - 분류기가 있는데 실패 → 에러를 전파한다. 폴백 값(taxonomy 밖 지수명)을 영구 캐시하면
+//     그 종목이 다음 실행에도 재조회되지 않아 대시보드에서 영구히 미분류로 남기 때문이다.
+func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier) (string, error) {
+	if classify == nil {
+		return stripKRXPrefix(rprsName), nil
+	}
+	cat, err := classify(fundName)
+	if err != nil {
+		return "", err
+	}
+	if cat == "" {
+		return stripKRXPrefix(rprsName), nil
+	}
+	return cat, nil
+}
+```
+
+같은 파일 `kisFetch` 안의 호출부를 교체:
+
+```go
+		var etfIndustry string
+		if isETF(price, info) {
+			etf, err := client.Domestic.InquireEtfPrice(ctx, domestic.InquireEtfPriceParams{Symbol: code})
+			if err != nil {
+				// 일시적 실패(레이트리밋 등)를 빈 값으로 영구 캐시하지 않도록 fetch 실패로 전파한다
+				// (negative-cache 처리 → 다음 실행에 재시도).
+				return "", "", err
+			}
+			etfIndustry, err = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+			if err != nil {
+				return "", "", err
+			}
+		}
+```
+
+`kisFetch` 의 파라미터 타입도 `classifyETF etfclass.Classifier` 로 바꾼다.
+
+- [ ] **Step 4: 테스트 실행 — 통과 확인**
+
+Run: `go test ./internal/bizcat/ -v`
+Expected: PASS (기존 테스트 포함 전부)
+
+- [ ] **Step 5: 전체 테스트 + 커밋**
+
+Run: `make test && go vet ./...`
+
+```bash
+git add internal/bizcat
+git commit -m "fix(bizcat): ETF 분류 일시 실패를 영구 캐시하지 않고 다음 실행에 재시도"
 ```
 
 ---
@@ -457,20 +625,27 @@ func TestResolve_FundTreatedAsETF(t *testing.T) {
 	assert.Equal(t, "글로벌주식", i)
 }
 
-// 분류기가 없거나 실패하면 FMP 원본 산업으로 폴백한다(섹터는 ETF 유지).
+// 분류기가 없으면(키 미설정) FMP 원본 산업으로 폴백한다(섹터는 ETF 유지).
 func TestResolve_ETFWithoutClassifierFallsBack(t *testing.T) {
-	fetch := func(symbol string) (profile, error) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
 		return profile{Sector: "Financial Services", Industry: "Asset Management - Bonds", Name: "iShares 20+ Year Treasury Bond ETF", IsETF: true}, nil
-	}
-	r := &Resolver{cache: map[string]entry{}, fetch: fetch}
+	}}
 	s, i := r.Resolve("TLT", "USD")
 	assert.Equal(t, "ETF", s)
 	assert.Equal(t, "Asset Management - Bonds", i, "분류기 nil → FMP 산업 폴백")
+}
 
-	r2 := &Resolver{cache: map[string]entry{}, fetch: fetch,
-		classifyETF: func(name string) (string, error) { return "", assert.AnError }}
-	_, i2 := r2.Resolve("TLT", "USD")
-	assert.Equal(t, "Asset Management - Bonds", i2, "분류 실패 → FMP 산업 폴백")
+// 분류기가 있는데 실패하면 캐시하지 않는다 — taxonomy 밖 값을 영구 캐시하면
+// 그 종목이 다음 실행에도 재조회되지 않아 대시보드에서 영구히 미분류로 남는다.
+func TestResolve_ClassifyFailureDoesNotPoisonCache(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
+		return profile{Sector: "Financial Services", Industry: "Asset Management - Bonds", Name: "iShares 20+ Year Treasury Bond ETF", IsETF: true}, nil
+	}, classifyETF: func(name string) (string, error) { return "", assert.AnError }}
+	s, i := r.Resolve("TLT", "USD")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "TLT", "실패는 캐시에 남지 않는다")
+	assert.True(t, r.failed["TLT"], "같은 실행 내 재조회는 막는다")
 }
 
 // 일반 종목(BDC·자산운용사 포함)은 기존대로 FMP 섹터/산업을 쓴다.
@@ -565,7 +740,7 @@ type Resolver struct {
 	failed      map[string]bool // 이번 실행에서 실패한 심볼(negative cache, 비영구)
 	cachePath   string
 	fetch       func(symbol string) (profile, error)
-	classifyETF func(name string) (string, error) // ETF 종목명 분류기(optional, nil 가능)
+	classifyETF etfclass.Classifier // ETF 종목명 → taxonomy 카테고리 분류기(optional, nil 가능)
 	dirty       bool
 }
 
@@ -650,9 +825,18 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 	// not-found 는 fetch 가 zero profile+nil 로 반환 → 빈 값 캐시(saveCache 가 파일에서 제외).
 	e := entry{Sector: p.Sector, Industry: p.Industry, Version: cacheVersion}
 	if p.IsETF || p.IsFund {
+		industry, err := r.etfIndustry(p, symbol)
+		if err != nil {
+			if r.failed == nil {
+				r.failed = map[string]bool{}
+			}
+			r.failed[symbol] = true
+			slog.Warn("ETF 카테고리 분류 실패, 캐시하지 않음(다음 실행 재시도)", "symbol", symbol, "err", err)
+			return cached.Sector, cached.Industry
+		}
 		e.IsETF = true
 		e.Sector = "ETF"
-		e.Industry = r.etfIndustry(p, symbol)
+		e.Industry = industry
 	}
 	r.cache[symbol] = e
 	r.dirty = true
@@ -660,18 +844,25 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 }
 
 // etfIndustry 는 해외 ETF 의 산업(taxonomy 카테고리)을 정한다.
-// 분류기가 있으면 회사명(없으면 심볼)으로 분류하고, 없거나 실패하면 FMP 원본 산업 폴백.
-func (r *Resolver) etfIndustry(p profile, symbol string) string {
-	if r.classifyETF != nil {
-		name := p.Name
-		if name == "" {
-			name = symbol
-		}
-		if cat, err := r.classifyETF(name); err == nil && cat != "" {
-			return cat
-		}
+//   - 분류기 미설정(nil) → FMP 원본 산업 폴백. 설정 상태이므로 에러가 아니다.
+//   - 분류기가 있는데 실패 → 에러 전파. taxonomy 밖 폴백 값을 영구 캐시하면 그 종목이
+//     다음 실행에도 재조회되지 않아 대시보드에서 영구히 미분류로 남기 때문이다.
+func (r *Resolver) etfIndustry(p profile, symbol string) (string, error) {
+	if r.classifyETF == nil {
+		return p.Industry, nil
 	}
-	return p.Industry
+	name := p.Name
+	if name == "" {
+		name = symbol
+	}
+	cat, err := r.classifyETF(name)
+	if err != nil {
+		return "", err
+	}
+	if cat == "" {
+		return p.Industry, nil
+	}
+	return cat, nil
 }
 
 func (r *Resolver) Save() {
