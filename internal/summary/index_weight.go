@@ -344,6 +344,7 @@ func (g *Generator) writeIndexWeight(ctx context.Context, trades []model.Trade, 
 
 	if helper := indexWeightPieHelper(rows); len(helper) > 1 && heldTotal > 0 {
 		hEnd := startRow + len(helper) - 1
+		// 열을 옮기면 charts.go 의 indexWeightLabelCol/ValueCol 도 함께 바꿀 것.
 		hRng := fmt.Sprintf("%s!Y%d:Z%d", DashboardSheet, startRow, hEnd)
 		if err := g.client.UpdateCells(ctx, hRng, helper); err != nil {
 			return 0, err

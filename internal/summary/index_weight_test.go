@@ -310,15 +310,17 @@ func TestIndexWeightValues_UnknownLabelCarriesStockCount(t *testing.T) {
 	assert.Equal(t, "▸ 미분류", plain[3][0])
 }
 
-// 파이 차트가 Y:Z(0-based 24,25)를 소스로 잡는지 확인한다.
+// 파이 차트가 Y:Z(indexWeightLabelCol/ValueCol)를 소스로 잡는지 확인한다.
+// buildPieChartSpec 호출부(charts.go)와 같은 상수를 넘겨, 헬퍼 열을 옮길 때
+// 문자열(index_weight.go)만 바뀌고 숫자(charts.go)가 남는 사고를 잡는다.
 func TestIndexWeightPieChartSpec_UsesYZColumns(t *testing.T) {
-	chart := buildPieChartSpec(7, "지수 vs 나머지 (보유원금)", 24, 25, 10, 13, 80, 20, 450, 370)
+	chart := buildPieChartSpec(7, "지수 vs 나머지 (보유원금)", indexWeightLabelCol, indexWeightValueCol, 10, 13, 80, 20, 450, 370)
 	domain := chart.Spec.PieChart.Domain.SourceRange.Sources[0]
 	series := chart.Spec.PieChart.Series.SourceRange.Sources[0]
-	assert.Equal(t, int64(24), domain.StartColumnIndex)
-	assert.Equal(t, int64(25), domain.EndColumnIndex)
-	assert.Equal(t, int64(25), series.StartColumnIndex)
-	assert.Equal(t, int64(26), series.EndColumnIndex)
+	assert.Equal(t, int64(indexWeightLabelCol), domain.StartColumnIndex)
+	assert.Equal(t, int64(indexWeightLabelCol+1), domain.EndColumnIndex)
+	assert.Equal(t, int64(indexWeightValueCol), series.StartColumnIndex)
+	assert.Equal(t, int64(indexWeightValueCol+1), series.EndColumnIndex)
 	assert.Equal(t, int64(10), domain.StartRowIndex)
 	assert.Equal(t, int64(13), domain.EndRowIndex)
 }

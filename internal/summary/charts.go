@@ -7,6 +7,13 @@ import (
 	gsheets "google.golang.org/api/sheets/v4"
 )
 
+// 지수 vs 나머지 파이 차트가 읽는 헬퍼 열(0-based). writeIndexWeight 가 Y:Z 에 쓴다 —
+// 옮길 때 index_weight.go 의 범위 문자열도 함께 바꿀 것.
+const (
+	indexWeightLabelCol = 24 // Y열
+	indexWeightValueCol = 25 // Z열
+)
+
 // chartSource 는 (sheetId, 행/열 범위) 로 차트 데이터 소스(GridRange) 를 만든다.
 // 0 값인 StartRowIndex/StartColumnIndex 도 전송되도록 ForceSendFields 를 설정한다.
 // (Python _build_*_chart_spec 의 내부 source_range 헬퍼)
@@ -210,11 +217,11 @@ func (g *Generator) createCharts(ctx context.Context, trendStart, trendEnd int) 
 		))
 	}
 
-	// 차트: 지수 vs 나머지 (Pie, 보유원금 기준). Y열(24)=구분, Z열(25)=보유원금.
+	// 차트: 지수 vs 나머지 (Pie, 보유원금 기준). indexWeightLabelCol/ValueCol(Y/Z열)=구분/보유원금.
 	if g.indexWeightPie.ok {
 		specs = append(specs, buildPieChartSpec(
 			sheetID, "지수 vs 나머지 (보유원금)",
-			24, 25,
+			indexWeightLabelCol, indexWeightValueCol,
 			g.indexWeightPie.start-1, g.indexWeightPie.end,
 			chartRowSpacing*4, chartColSecondary, 450, 370,
 		))
