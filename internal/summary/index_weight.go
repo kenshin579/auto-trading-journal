@@ -146,11 +146,14 @@ func logIndexWeightDiag(d indexWeightDiag) {
 			"종목수", len(d.unclassified), "상위", diagNames(d.unclassified))
 	}
 	if len(d.oversold) > 0 {
-		slog.Warn("매도수량 > 매수수량 — 기간 밖 매수분이 빠진 것으로 보임(보유원금 0 처리)",
+		slog.Warn("매도수량 > 매수수량 — 기간 밖 매수분 누락으로 보임. 해당 종목의 보유원금이 0 으로 잡혀 "+
+			"실제보다 적게 표시된다. 더 긴 기간의 거래내역 CSV 를 input/ 에 넣고 재실행할 것",
 			"종목수", len(d.oversold), "상위", diagNames(d.oversold))
 	}
 }
 
+// diagNames 는 로그에 실을 상위 N 종목의 "이름(₩금액)" 목록.
+// 이름만 찍으면 "미분류 500만 원 중 첫 종목이 90% 인지 10% 인지"를 알 수 없다.
 func diagNames(list []stockAmount) []string {
 	n := len(list)
 	if n > diagTopN {
@@ -158,7 +161,7 @@ func diagNames(list []stockAmount) []string {
 	}
 	names := make([]string, 0, n)
 	for _, s := range list[:n] {
-		names = append(names, s.name)
+		names = append(names, fmt.Sprintf("%s(₩%s)", s.name, formatThousands(s.amount)))
 	}
 	return names
 }
@@ -280,7 +283,9 @@ func aggregateIndexWeight(trades []model.Trade) ([]indexWeightRow, indexWeightDi
 }
 
 // indexWeightValues 는 시트에 쓸 A:E 셀 값과 그룹 행 오프셋(0-based)을 만든다.
-func indexWeightValues(rows []indexWeightRow) ([][]any, []int) {
+// diag 는 미분류 행 라벨에 종목수를 싣는 데만 쓴다 — 로그는 휘발성이라 시트에서
+// 미분류를 본 시점엔 이미 사라졌을 수 있어, 시트만으로 규모를 알 수 있어야 한다.
+func indexWeightValues(rows []indexWeightRow, diag indexWeightDiag) ([][]any, []int) {
 	values := [][]any{
 		{"[지수 vs 나머지 투자]", "", "", "", ""},
 		{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"},
@@ -290,6 +295,9 @@ func indexWeightValues(rows []indexWeightRow) ([][]any, []int) {
 		label := "  " + r.bucket
 		if r.bucket == "" {
 			label = "▸ " + r.group
+			if r.group == groupUnknown && len(diag.unclassified) > 0 {
+				label = fmt.Sprintf("▸ %s (%d종목)", r.group, len(diag.unclassified))
+			}
 			groupOffsets = append(groupOffsets, len(values))
 		}
 		values = append(values, []any{label, r.buy, r.buyPct, r.held, r.heldPct})
@@ -313,7 +321,11 @@ func indexWeightPieHelper(rows []indexWeightRow) [][]any {
 // (N:O=계좌별 파이, W:X=나라별 섹터 파이가 이미 쓰고 있고, 초기화 범위가 A1:Z 라 AA 이후는 안 지워진다).
 func (g *Generator) writeIndexWeight(ctx context.Context, trades []model.Trade, startRow int) (int, error) {
 	rows, diag := aggregateIndexWeight(trades)
-	values, groupOffsets := indexWeightValues(rows)
+	values, groupOffsets := indexWeightValues(rows, diag)
+
+	// 쓰기보다 먼저 비운다 — 중간에 실패하고 돌아가면 이전 실행의 범위가 남아
+	// 엉뚱한 행을 가리키는 차트가 만들어질 수 있다.
+	g.indexWeightPie = rowRange{}
 
 	endRow := startRow + len(values) - 1
 	rng := fmt.Sprintf("%s!A%d:E%d", DashboardSheet, startRow, endRow)
@@ -321,8 +333,16 @@ func (g *Generator) writeIndexWeight(ctx context.Context, trades []model.Trade, 
 		return 0, err
 	}
 
-	g.indexWeightPie = rowRange{}
-	if helper := indexWeightPieHelper(rows); len(helper) > 1 {
+	// 그룹 소계 보유원금의 합. 전량 매도한 포트폴리오는 행이 있어도 값이 전부 0 이라
+	// 파이가 빈 원으로 그려진다 — 그때는 차트를 만들지 않는다.
+	var heldTotal float64
+	for _, r := range rows {
+		if r.bucket == "" {
+			heldTotal += r.held
+		}
+	}
+
+	if helper := indexWeightPieHelper(rows); len(helper) > 1 && heldTotal > 0 {
 		hEnd := startRow + len(helper) - 1
 		hRng := fmt.Sprintf("%s!Y%d:Z%d", DashboardSheet, startRow, hEnd)
 		if err := g.client.UpdateCells(ctx, hRng, helper); err != nil {
@@ -349,8 +369,12 @@ func (g *Generator) collectIndexWeightFormats(startRow, endRow int, groupOffsets
 		{Col: 3, Pattern: "0.00%", Type: "PERCENT"},
 		{Col: 5, Pattern: "0.00%", Type: "PERCENT"},
 	}
-	g.pendingRequests = append(g.pendingRequests, build(sid, krw, startRow, endRow)...)
-	g.pendingRequests = append(g.pendingRequests, build(sid, pct, startRow, endRow)...)
+	// 데이터는 startRow+2 부터(startRow=제목행, startRow+1=컬럼 헤더).
+	// 거래가 없으면 데이터 행 자체가 없어 포맷을 걸 곳이 없다.
+	if endRow >= startRow+2 {
+		g.pendingRequests = append(g.pendingRequests, build(sid, krw, startRow+2, endRow)...)
+		g.pendingRequests = append(g.pendingRequests, build(sid, pct, startRow+2, endRow)...)
+	}
 
 	headerColor := &gsheets.Color{Red: 0.24, Green: 0.52, Blue: 0.78, ForceSendFields: []string{"Red", "Green", "Blue"}}
 	groupColor := &gsheets.Color{Red: 0.85, Green: 0.92, Blue: 0.98, ForceSendFields: []string{"Red", "Green", "Blue"}}

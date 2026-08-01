@@ -95,6 +95,10 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 		return err
 	}
 	currentRow++ // 빈 행
+	if currentRow, err = g.writeIndexWeight(ctx, trades, currentRow); err != nil {
+		return err
+	}
+	currentRow++ // 빈 행
 	insightsStart := currentRow
 	if currentRow, err = g.writeTradingInsights(ctx, trades, currentRow); err != nil {
 		return err

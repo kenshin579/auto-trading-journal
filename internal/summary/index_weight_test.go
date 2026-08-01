@@ -264,6 +264,12 @@ func TestDiagNames_CapsAtTopN(t *testing.T) {
 	assert.Len(t, diagNames(list[:2]), 2)
 }
 
+// 이름만으로는 규모를 알 수 없으므로 금액을 함께 싣는다.
+func TestDiagNames_IncludesAmount(t *testing.T) {
+	list := []stockAmount{{name: "미분류거액", amount: 1_234_567}, {name: "손실", amount: -1000}}
+	assert.Equal(t, []string{"미분류거액(₩1,234,567)", "손실(₩-1,000)"}, diagNames(list))
+}
+
 // 셀 값 생성: 제목행 + 컬럼헤더 + (그룹행은 "▸", 버킷행은 두 칸 들여쓰기).
 func TestIndexWeightValues(t *testing.T) {
 	rows := []indexWeightRow{
@@ -271,7 +277,7 @@ func TestIndexWeightValues(t *testing.T) {
 		{group: groupIndex, bucket: bucketSP500, buy: 100, held: 50, buyPct: 0.5, heldPct: 0.5},
 		{group: groupOther, bucket: "", buy: 100, held: 50, buyPct: 0.5, heldPct: 0.5},
 	}
-	values, groupOffsets := indexWeightValues(rows)
+	values, groupOffsets := indexWeightValues(rows, indexWeightDiag{})
 
 	assert.Equal(t, "[지수 vs 나머지 투자]", values[0][0])
 	assert.Equal(t, []any{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"}, values[1])
@@ -283,6 +289,38 @@ func TestIndexWeightValues(t *testing.T) {
 
 	// 그룹 행 오프셋(0-based, 제목행 기준) — 배경색 적용에 쓰인다
 	assert.Equal(t, []int{2, 4}, groupOffsets)
+}
+
+// 미분류 그룹 행에는 종목수를 실어 로그 없이 시트만으로 규모를 알 수 있게 한다.
+func TestIndexWeightValues_UnknownLabelCarriesStockCount(t *testing.T) {
+	rows := []indexWeightRow{
+		{group: groupIndex, bucket: "", buy: 100, held: 100},
+		{group: groupUnknown, bucket: "", buy: 50, held: 50},
+	}
+	diag := indexWeightDiag{unclassified: []stockAmount{
+		{name: "A", amount: 30}, {name: "B", amount: 15}, {name: "C", amount: 5},
+	}}
+
+	values, _ := indexWeightValues(rows, diag)
+	assert.Equal(t, "▸ 지수", values[2][0], "미분류 아닌 그룹은 종목수를 붙이지 않는다")
+	assert.Equal(t, "▸ 미분류 (3종목)", values[3][0])
+
+	// 진단이 비면 종목수 없이 기존 라벨.
+	plain, _ := indexWeightValues(rows, indexWeightDiag{})
+	assert.Equal(t, "▸ 미분류", plain[3][0])
+}
+
+// 파이 차트가 Y:Z(0-based 24,25)를 소스로 잡는지 확인한다.
+func TestIndexWeightPieChartSpec_UsesYZColumns(t *testing.T) {
+	chart := buildPieChartSpec(7, "지수 vs 나머지 (보유원금)", 24, 25, 10, 13, 80, 20, 450, 370)
+	domain := chart.Spec.PieChart.Domain.SourceRange.Sources[0]
+	series := chart.Spec.PieChart.Series.SourceRange.Sources[0]
+	assert.Equal(t, int64(24), domain.StartColumnIndex)
+	assert.Equal(t, int64(25), domain.EndColumnIndex)
+	assert.Equal(t, int64(25), series.StartColumnIndex)
+	assert.Equal(t, int64(26), series.EndColumnIndex)
+	assert.Equal(t, int64(10), domain.StartRowIndex)
+	assert.Equal(t, int64(13), domain.EndRowIndex)
 }
 
 // 차트 헬퍼는 그룹 소계만, 보유원금 기준.

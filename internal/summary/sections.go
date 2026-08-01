@@ -168,8 +168,9 @@ func (g *Generator) writeMonthlySummary(ctx context.Context, trades []model.Trad
 
 // ── 섹션 3: 종목별 현황 ──────────────────────────────────────
 
-// stockKey 는 "같은 종목"의 정의. 대시보드의 종목 단위 집계가 모두 이 키를 쓴다
-// (한쪽만 바꾸면 섹션끼리 종목 수가 어긋난다).
+// stockKey 는 "같은 종목"의 정의. 대시보드의 종목 단위 집계가 이 키를 쓴다
+// (한쪽만 바꾸면 섹션끼리 종목 수가 어긋난다). 예외: aggregateAccountStockCount 는
+// 계좌를 바깥 맵 키로 쓰므로 계좌를 뺀 acctStockKey 를 쓴다.
 type stockKey struct{ name, code, account, currency string }
 
 func stockKeyOf(t model.Trade) stockKey {

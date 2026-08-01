@@ -210,6 +210,16 @@ func (g *Generator) createCharts(ctx context.Context, trendStart, trendEnd int) 
 		))
 	}
 
+	// 차트: 지수 vs 나머지 (Pie, 보유원금 기준). Y열(24)=구분, Z열(25)=보유원금.
+	if g.indexWeightPie.ok {
+		specs = append(specs, buildPieChartSpec(
+			sheetID, "지수 vs 나머지 (보유원금)",
+			24, 25,
+			g.indexWeightPie.start-1, g.indexWeightPie.end,
+			chartRowSpacing*4, chartColSecondary, 450, 370,
+		))
+	}
+
 	if len(specs) > 0 {
 		if err := g.client.AddCharts(ctx, specs); err != nil {
 			return err
