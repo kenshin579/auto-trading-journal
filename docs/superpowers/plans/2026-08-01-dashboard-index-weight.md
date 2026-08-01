@@ -387,7 +387,178 @@ git commit -m "feat(etfclass): 미국 시장대표를 S&P500/나스닥/기타로
 
 ---
 
-### Task 2B: 분류 일시 실패를 영구 캐시하지 않기 (bizcat)
+### Task 2B: 분류 정확도 보강 (영문 큐 · 표기 정규화 · 팩터 카테고리)
+
+Task 2 리뷰에서 드러난 정확도 구멍 넷을 메운다. 전부 `etfclass` 한 패키지 안에서 끝난다.
+Task 2C 가 캐시 버전을 올리므로 **taxonomy 변경은 이 태스크에서 마무리해야 한다**(버전을 두 번
+올리지 않기 위해).
+
+1. **가드가 티커로 쓰여 있는데 분류기는 이름만 받는다.** 국내는 CSV 한글 펀드명, 해외(Task 3)는
+   FMP `CompanyName` 이 입력이다. `JEPQ` 의 실제 입력은 `JPMorgan Nasdaq Equity Premium Income ETF`
+   로 **"Nasdaq" 이 들어있어** 나스닥 버킷을 부풀릴 개연성이 크다. 한글 큐만으로는 영문 펀드명을
+   못 잡으므로 영문 큐를 병기한다.
+2. **`Validate` 가 exact match 라 `미국주식(기타)` 의 괄호 표기 흔들림에 취약하다.** 전각 괄호나
+   공백이 섞이면 `기타테마` 로 떨어지는데, 그러면 지수 쪽이 **과소평가**된다(실패가 한 방향으로
+   쏠린다). 정규화와 경고 로그를 넣는다.
+3. **`원자재` 가 채굴·에너지 주식 펀드까지 흡수한다.** XLE·XLB·SIL·COPX 가 `원자재` 로 분류되면
+   Task 5 매핑에서 **채권·금·현금성 ETF** 버킷에 들어간다 — 주식 익스포저가 현금성으로 표시된다.
+   `원자재` 를 실물·선물 직접 투자로 한정한다.
+4. **팩터·스타일 펀드가 갈 곳이 없다.** SCHG(미국 대형 성장주)를 `기타테마` 로 보내면 반도체·2차전지와
+   같은 줄에 놓인다. 성격은 전략형이므로 `팩터·스타일` 카테고리를 추가해 "배당·전략 ETF" 버킷으로
+   보낸다.
+
+**Files:**
+- Modify: `internal/etfclass/classifier.go`
+- Modify: `internal/etfclass/classifier_test.go`
+- Modify: `internal/bizcat/resolver_test.go` (fixture 정리)
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`internal/etfclass/classifier_test.go` 의 기존 `TestSystemPrompt_ContainsIndexGuards` 를 교체한다.
+기존 목록의 `"S&P500"`, `"나스닥"`, `"미국주식(기타)"` 는 프롬프트가 `Categories` 목록을 그대로
+끼워넣으므로 **분류 규칙을 통째로 지워도 통과하는 동어반복**이다. 규칙 문구만 검증한다:
+
+```go
+// 프롬프트에 지수 오분류 방지 규칙이 들어있는지 확인한다.
+// (LLM 응답 자체는 테스트하지 않는다 — 규칙 누락만 잡는다.)
+// 카테고리 이름은 Categories 목록이 프롬프트에 그대로 들어가 항상 통과하므로 넣지 않는다.
+func TestSystemPrompt_ContainsIndexGuards(t *testing.T) {
+	for _, want := range []string{"커버드콜", "레버리지", "인버스", "팩터", "실물·선물"} {
+		assert.Contains(t, systemPrompt, want)
+	}
+}
+
+// 입력이 영문 펀드명(FMP CompanyName)인 경우가 많으므로 영문 큐도 있어야 한다.
+// 예: JEPQ 의 입력은 "JPMorgan Nasdaq Equity Premium Income ETF" — 한글 큐로는 안 잡힌다.
+func TestSystemPrompt_ContainsEnglishCues(t *testing.T) {
+	for _, want := range []string{"Covered Call", "Equity Premium Income", "Growth", "Value", "Momentum", "Inverse", "Equal Weight"} {
+		assert.Contains(t, systemPrompt, want)
+	}
+}
+
+// 카테고리 표기 흔들림(전각 괄호·공백)은 정규화해서 받는다.
+// 정규화 실패 시 기타테마로 떨어지면 지수 비중이 과소평가되므로 중요하다.
+func TestValidate_NormalizesPunctuation(t *testing.T) {
+	assert.Equal(t, "미국주식(기타)", Validate("미국주식（기타）"), "전각 괄호")
+	assert.Equal(t, "미국주식(기타)", Validate("미국주식 (기타)"), "내부 공백")
+	assert.Equal(t, "바이오·헬스케어", Validate(" 바이오·헬스케어 "))
+	assert.Equal(t, FallbackCategory, Validate("미국주식"), "정규화해도 없는 카테고리")
+}
+
+// 팩터·스타일 펀드(SCHG 등)를 담을 카테고리.
+func TestValidate_FactorStyleCategory(t *testing.T) {
+	assert.Equal(t, "팩터·스타일", Validate("팩터·스타일"))
+}
+```
+
+- [ ] **Step 2: 테스트 실행 — 실패 확인**
+
+Run: `go test ./internal/etfclass/ -v`
+Expected: FAIL — `Validate("미국주식（기타）")` 가 `기타테마` 반환, `팩터·스타일` 이 taxonomy 밖,
+프롬프트에 영문 큐와 `실물·선물` 없음
+
+- [ ] **Step 3: taxonomy 에 `팩터·스타일` 추가**
+
+`internal/etfclass/classifier.go` 의 `Categories` 자산군 줄을 교체(총 28종):
+
+```go
+	// 자산군
+	"배당", "팩터·스타일", "리츠·부동산", "원자재", "채권", "통화·단기금리",
+```
+
+- [ ] **Step 4: `Validate` 정규화 + 관측 로그**
+
+`internal/etfclass/classifier.go` 의 `Validate` 를 교체(파일 import 에 `log/slog` 는 이미 있다):
+
+```go
+// categoryNormalizer 는 모델 응답의 표기 흔들림을 흡수한다(전각 괄호, 내부 공백).
+// taxonomy 의 어떤 카테고리도 내부 공백을 갖지 않으므로 공백 제거는 안전하다.
+var categoryNormalizer = strings.NewReplacer(
+	"（", "(", "）", ")", " ", "", "\t", "", " ", "",
+)
+
+// Validate 는 분류 결과가 taxonomy 안에 있으면 그대로, 표기만 다르면 정규화해서,
+// 그래도 없으면 FallbackCategory 로 돌려준다.
+// taxonomy 밖 응답은 경고로 남긴다 — 조용히 기타테마로 흡수되면 지수 비중이 과소평가되는데
+// 그 사실을 알 방법이 없어진다.
+func Validate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return FallbackCategory
+	}
+	if categorySet[s] {
+		return s
+	}
+	if n := categoryNormalizer.Replace(s); categorySet[n] {
+		slog.Warn("ETF 카테고리 표기 정규화", "raw", s, "normalized", n)
+		return n
+	}
+	slog.Warn("ETF 카테고리가 taxonomy 밖 — 기타테마로 처리", "raw", s)
+	return FallbackCategory
+}
+```
+
+- [ ] **Step 5: 프롬프트 교체 (예외를 먼저, 영문 큐 병기)**
+
+LLM 은 뒤에 오는 부정문("…로 분류하지 마세요")을 일관되지 않게 적용하므로 예외를 앞으로 옮긴다.
+`internal/etfclass/classifier.go` 의 `systemPrompt` 를 교체:
+
+```go
+var systemPrompt = fmt.Sprintf(`당신은 ETF 분류 전문가입니다.
+ETF 종목명(한글 펀드명 또는 영문 펀드명)을 보고 아래 카테고리 중 정확히 하나로 분류하세요.
+
+사용 가능한 카테고리: %s
+
+먼저 아래 예외에 해당하는지 보세요. 해당하면 이름에 지수명이 들어 있어도 시장대표 지수로
+분류하지 마세요(지수를 그대로 추종하지 않기 때문입니다).
+- 커버드콜·프리미엄인컴: "커버드콜"/"타겟프리미엄"/Covered Call/Equity Premium Income/
+  Enhanced Income/Buffer → 배당.  예: "JPMorgan Nasdaq Equity Premium Income ETF"→배당
+- 레버리지·인버스: "곱버스"/"인버스"/2X/3X/Ultra/UltraPro/Bull/Bear/Inverse → 기타테마
+- 팩터·스타일: 성장주/가치주/퀄리티/모멘텀/저변동/동일가중/Growth/Value/Quality/Momentum/
+  Low Volatility/Equal Weight → 팩터·스타일.
+  단 배당 팩터(고배당·배당성장·Dividend Growth)는 배당
+- 소수 종목 집중 바스켓("Magnificent Seven"/TOP10 등) → 기타테마
+
+예외가 아니면 아래 기준으로 분류하세요.
+- 특정 섹터·테마가 핵심이면 지역보다 해당 테마 우선
+  (반도체/2차전지/바이오·헬스케어/AI·로봇/신재생에너지/원자력/방위·우주항공/자동차/금융/건설/필수소비재/IT·인터넷).
+  예: "미국반도체"→반도체, "글로벌AI"→AI·로봇.
+- 시장 전체를 담는 대표 지수형은 추종 지수로 분류합니다.
+  "S&P500"/"S&P 500"/"SPDR S&P 500"→S&P500,  "나스닥100"/"NASDAQ 100"/"QQQ"→나스닥,
+  "코스피200"/"코스닥150"/"KRX300"→한국주식,
+  러셀2000·다우존스·미국 토탈마켓 등 그 외 미국 시장대표→미국주식(기타),
+  그 외 국가·지역은 중국주식/일본주식/인도주식/베트남주식/글로벌주식.
+- 은행/보험/증권은 금융. 채권/국채/회사채는 채권. 단기자금/CD금리/통화는 통화·단기금리.
+- 원자재는 금·은·원유 등 실물·선물에 직접 투자하는 경우만입니다. 채굴·정유·에너지·소재 등
+  관련 기업 주식에 투자하면 원자재가 아니라 해당 테마(원자력 등) 또는 기타테마입니다.
+- 리츠·부동산·인프라는 리츠·부동산.
+- 애매하거나 위에 없으면 기타테마.
+
+반드시 JSON 으로만 응답: {"category": "<카테고리>"}`, strings.Join(Categories, ", "))
+```
+
+- [ ] **Step 6: bizcat 테스트 fixture 정리**
+
+`internal/bizcat/resolver_test.go` 의 `TestNeedsRefresh` 에서 **현재 버전** 항목의 산업이
+taxonomy 밖 값(`"미국주식"`)이라 "v4 가 미국주식을 저장한다"는 잘못된 인상을 준다. 교체:
+
+```go
+	assert.False(t, needsRefresh(entry{Sector: "ETF", Industry: "S&P500", Version: etfCacheVersion}), "현재 버전 ETF 유지")
+```
+
+- [ ] **Step 7: 테스트 실행 + 커밋**
+
+Run: `go test ./internal/etfclass/ ./internal/bizcat/ -v && make test && go vet ./...`
+Expected: PASS
+
+```bash
+git add internal/etfclass internal/bizcat
+git commit -m "fix(etfclass): 영문 펀드명 큐·표기 정규화·팩터 카테고리로 지수 오분류 축소"
+```
+
+---
+
+### Task 2C: 분류 일시 실패를 영구 캐시하지 않기 (bizcat)
 
 지금은 OpenAI 분류가 일시적으로 실패하면 `resolveETFIndustry` 가 조용히 KIS 지수명으로 폴백하고,
 그 값이 **현재 캐시 버전으로** 저장된다(`resolver.go:87`). `needsRefresh` 가 false 라 다음 실행에
@@ -400,8 +571,12 @@ git commit -m "feat(etfclass): 미국 시장대표를 S&P500/나스닥/기타로
 
 두 번째를 KIS 조회 실패와 같은 경로(negative-cache, 기존 캐시 보존)로 보낸다.
 
+**동시에 캐시 버전을 v5 로 올린다.** Task 2 가 v4 로 올리면서 ETF 89건을 한꺼번에 OpenAI 로
+재분류하는데, 일시 실패 확률이 가장 높은 그 순간에 오염된 값이 **v4 로 기록**된다. 코드만 고치고
+버전을 그대로 두면 이미 오염된 항목은 `needsRefresh` 가 false 라 소급 복구되지 않는다.
+
 **Files:**
-- Modify: `internal/bizcat/resolver.go` (`resolveETFIndustry`, `kisFetch`)
+- Modify: `internal/bizcat/resolver.go` (`resolveETFIndustry`, `kisFetch`, `etfCacheVersion`)
 - Modify: `internal/bizcat/resolver_test.go`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
@@ -507,12 +682,25 @@ func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier)
 
 `kisFetch` 의 파라미터 타입도 `classifyETF etfclass.Classifier` 로 바꾼다.
 
-- [ ] **Step 4: 테스트 실행 — 통과 확인**
+- [ ] **Step 4: 캐시 버전 v5 로 올리기**
+
+Task 2 의 v4 재분류 버스트 중 오염됐을 수 있는 항목을 무효화한다.
+`internal/bizcat/resolver.go` 의 버전 선언을 교체:
+
+```go
+// etfCacheVersion 은 현재 ETF 산업 분류 스키마 버전. 이보다 낮은 ETF 캐시는 재조회한다.
+// v2: 코드분류(KRX명)+9999(OpenAI) 하이브리드. v3: 전부 OpenAI taxonomy 로 통일.
+// v4: 미국 시장대표를 S&P500/나스닥/미국주식(기타)로 세분(지수 비중 집계용).
+// v5: 분류 실패 시 폴백 값을 영구 캐시하던 버그 이전 항목 무효화 + 팩터·스타일 카테고리 추가.
+const etfCacheVersion = 5
+```
+
+- [ ] **Step 5: 테스트 실행 — 통과 확인**
 
 Run: `go test ./internal/bizcat/ -v`
-Expected: PASS (기존 테스트 포함 전부)
+Expected: PASS (기존 테스트 포함 전부. `TestNeedsRefresh` 의 v3 케이스는 v5 기준으로도 여전히 true)
 
-- [ ] **Step 5: 전체 테스트 + 커밋**
+- [ ] **Step 6: 전체 테스트 + 커밋**
 
 Run: `make test && go vet ./...`
 
@@ -1015,9 +1203,12 @@ func TestBucketOf_Other(t *testing.T) {
 		assert.Equal(t, bucketTheme, b, industry)
 	}
 
-	g, b := bucketOf("ETF", "배당")
-	assert.Equal(t, groupOther, g)
-	assert.Equal(t, bucketDividend, b)
+	// 배당·전략 계열: 배당(고배당·배당성장·커버드콜)과 팩터·스타일(성장/가치/퀄리티)
+	for _, industry := range []string{"배당", "팩터·스타일"} {
+		g, b := bucketOf("ETF", industry)
+		assert.Equal(t, groupOther, g, industry)
+		assert.Equal(t, bucketDividend, b, industry)
+	}
 
 	for _, industry := range []string{"채권", "원자재", "통화·단기금리"} {
 		g, b := bucketOf("ETF", industry)
@@ -1131,6 +1322,7 @@ var etfBuckets = map[string][2]string{
 	"리츠·부동산":     {groupOther, bucketTheme},
 	"기타테마":       {groupOther, bucketTheme},
 	"배당":         {groupOther, bucketDividend},
+	"팩터·스타일":     {groupOther, bucketDividend},
 	"채권":         {groupOther, bucketBondGold},
 	"원자재":        {groupOther, bucketBondGold},
 	"통화·단기금리":    {groupOther, bucketBondGold},
