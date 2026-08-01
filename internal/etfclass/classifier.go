@@ -32,6 +32,10 @@ var Categories = []string{
 // FallbackCategory 는 taxonomy 밖 응답/분류 불가 시 사용.
 const FallbackCategory = "기타테마"
 
+// SectorETF 는 ETF/펀드로 판별된 종목의 섹터 값. bizcat·fmpcat 이 쓰고 summary 가 읽는
+// 패키지 간 계약이라 리터럴 대신 이 상수를 쓴다(한쪽만 바뀌면 지수 집계가 조용히 0 이 된다).
+const SectorETF = "ETF"
+
 var categorySet = func() map[string]bool {
 	m := make(map[string]bool, len(Categories))
 	for _, c := range Categories {

@@ -1,5 +1,11 @@
 package summary
 
+import (
+	"strings"
+
+	"github.com/kenshin579/auto-trading-journal/internal/etfclass"
+)
+
 // 그룹(상위 묶음). 미분류는 지수/나머지 어디에도 속하지 않는 독립 그룹이다.
 const (
 	groupIndex   = "지수"
@@ -17,12 +23,15 @@ const (
 	bucketTheme      = "테마·섹터 ETF"
 	bucketDividend   = "배당·전략 ETF"
 	bucketBondGold   = "채권·금·현금성 ETF"
-	bucketUnknown    = "미분류"
+	bucketUnknown    = "미분류" // 집계 키로만 쓰인다 — 표에는 미분류 그룹 행 하나로만 나온다
 )
+
+// bucketAssignment 는 ETF 카테고리가 표에서 어느 그룹·버킷 줄로 가는지.
+type bucketAssignment struct{ group, bucket string }
 
 // etfBuckets 는 ETF 카테고리(etfclass.Categories) → (그룹, 버킷) 매핑.
 // etfclass 에 카테고리를 추가하면 여기에도 넣어야 한다(TestETFBuckets_CoversTaxonomy 가 강제).
-var etfBuckets = map[string][2]string{
+var etfBuckets = map[string]bucketAssignment{
 	"S&P500":   {groupIndex, bucketSP500},
 	"나스닥":      {groupIndex, bucketNasdaq},
 	"한국주식":     {groupIndex, bucketKorea},
@@ -55,18 +64,23 @@ var etfBuckets = map[string][2]string{
 
 // bucketOf 는 거래의 (섹터, 산업)으로 표시 그룹/버킷을 정한다.
 //   - 섹터가 비면 미분류(FMP 미커버/미지원 통화/키 없음).
-//   - 섹터가 "ETF" 가 아니면 개별종목.
+//   - 섹터가 ETF 가 아니면 개별종목.
 //   - ETF 인데 산업이 taxonomy 밖이면(분류기 없을 때의 KIS 지수명·FMP 산업 폴백 등) 미분류 —
 //     임의로 테마에 넣지 않는다. 지수인지 아닌지 모르는 것을 아는 척하면 배분 판단이 틀어진다.
+//
+// 입력은 시트를 왕복해 온 값이라(ReadAllTrades) 캐시와 달리 사용자가 셀을 손으로 고쳐
+// 공백이 붙을 수 있다 — 맵 조회 전에 TrimSpace 한다.
 func bucketOf(sector, industry string) (group, bucket string) {
+	sector = strings.TrimSpace(sector)
+	industry = strings.TrimSpace(industry)
 	if sector == "" {
 		return groupUnknown, bucketUnknown
 	}
-	if sector != "ETF" {
+	if sector != etfclass.SectorETF {
 		return groupOther, bucketStock
 	}
 	if gb, ok := etfBuckets[industry]; ok {
-		return gb[0], gb[1]
+		return gb.group, gb.bucket
 	}
 	return groupUnknown, bucketUnknown
 }

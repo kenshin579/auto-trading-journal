@@ -96,7 +96,7 @@ func (r *Resolver) Resolve(code, name string) (string, string) {
 // ETF 산업 분류 스키마가 바뀌면(구버전=지수명/빈값) 미스로 간주해 재조회한다.
 // 비-ETF 주식 캐시는 영향받지 않는다(전체 삭제 불필요).
 func needsRefresh(e entry) bool {
-	return e.Sector == "ETF" && e.Version < etfCacheVersion
+	return e.Sector == etfclass.SectorETF && e.Version < etfCacheVersion
 }
 
 func (r *Resolver) Save() {
@@ -209,7 +209,7 @@ func isETF(price *domestic.Price, info *domestic.StockInfo) bool {
 //     표준산업분류가 비는 ETF 의 산업 열을 추종 섹터로 채운다.
 func extractSectorIndustry(price *domestic.Price, info *domestic.StockInfo, etfIndustry string) (sector, industry string) {
 	if isETF(price, info) {
-		return "ETF", etfIndustry
+		return etfclass.SectorETF, etfIndustry
 	}
 	return price.BstpKorIsnm, info.StdIdstClsfCdName
 }

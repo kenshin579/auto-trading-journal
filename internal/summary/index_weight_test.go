@@ -85,4 +85,16 @@ func TestETFBuckets_CoversTaxonomy(t *testing.T) {
 		_, ok := etfBuckets[c]
 		assert.True(t, ok, "매핑 누락: %s", c)
 	}
+
+	// 역방향 — taxonomy 에서 사라진 카테고리가 맵에 유령으로 남지 않도록.
+	for k := range etfBuckets {
+		assert.Contains(t, etfclass.Categories, k, "taxonomy 에 없는 키: %s", k)
+	}
+}
+
+// 시트에서 읽은 값이라 사용자가 손으로 고쳐 공백이 붙을 수 있다.
+func TestBucketOf_TrimsInput(t *testing.T) {
+	g, b := bucketOf(" ETF ", " S&P500 ")
+	assert.Equal(t, groupIndex, g)
+	assert.Equal(t, bucketSP500, b)
 }

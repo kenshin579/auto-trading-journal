@@ -8,6 +8,7 @@ import (
 
 	gsheets "google.golang.org/api/sheets/v4"
 
+	"github.com/kenshin579/auto-trading-journal/internal/etfclass"
 	"github.com/kenshin579/auto-trading-journal/internal/model"
 	"github.com/kenshin579/auto-trading-journal/internal/sheets"
 )
@@ -29,10 +30,10 @@ type countrySectorGroup struct {
 }
 
 // sectorKey 는 집계 라벨을 정한다. ETF 는 한 덩어리로 뭉치지 않도록 산업(OpenAI category)으로
-// "ETF·{category}" 세분화한다(예 "ETF·반도체"/"ETF·미국주식"). 산업이 빈 미분류 ETF 는 "ETF".
+// "ETF·{category}" 세분화한다(예 "ETF·반도체"/"ETF·S&P500"). 산업이 빈 미분류 ETF 는 "ETF".
 // 일반 종목은 섹터(KIS 업종 / FMP 영문) 그대로.
 func sectorKey(sector, industry string) string {
-	if sector == "ETF" && industry != "" {
+	if sector == etfclass.SectorETF && industry != "" {
 		return "ETF·" + industry
 	}
 	return sector

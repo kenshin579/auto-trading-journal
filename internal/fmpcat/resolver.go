@@ -139,7 +139,7 @@ func (r *Resolver) Resolve(ticker, currency string) (string, string) {
 			return cached.Sector, cached.Industry
 		}
 		e.IsETF = true
-		e.Sector = "ETF"
+		e.Sector = etfclass.SectorETF
 		e.Industry = industry
 	}
 	r.cache[symbol] = e
