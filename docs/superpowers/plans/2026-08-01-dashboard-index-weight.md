@@ -1851,6 +1851,156 @@ git commit -m "feat(summary): 지수/나머지 누적매수·보유원금 집계
 - Modify: `internal/summary/index_weight_test.go`
 - Modify: `internal/summary/summary.go:50-54` (Generator 필드)
 
+- [ ] **Step 0: 진단 정보 노출 + 종목 키 통일 (Task 6 리뷰 반영)**
+
+표에 안 나오지만 사용자가 알아야 하는 신호 두 가지를 집계가 함께 돌려주게 한다.
+
+**왜 필요한가:**
+1. **미분류 잔량** — 그 금액만큼 지수/나머지 판단에서 빠진 것인데, 지금은 총액만 보이고 어느 종목인지
+   알 수 없다. 시트에서 숫자를 보고 로그로 원인 종목에 바로 도달할 수 있어야 한다.
+2. **매도수량 > 매수수량** — 입력 CSV 는 **기간 지정 내역서**다(`MiraeDomestic` 헤더가
+   `일자,종목명,기간 중 매수`). 기간 이전에 산 물량을 기간 안에서 팔면 `remain < 0` 이 되고 클램프로
+   보유원금이 0 이 된다. **실제로는 보유 중인 포지션이 0 으로 잡히는 것**이고, 지수 ETF 에서
+   발생하면 지수 보유원금이 과소평가된다 — 사용자의 판단이 이미 기울어진 방향으로 한 번 더 밀린다.
+   계산 결과가 아니라 **데이터 품질 신호**이므로 조용하면 안 된다.
+
+`internal/summary/index_weight.go` 에 타입을 추가하고 `aggregateIndexWeight` 가 두 번째 값을 돌려주게 한다:
+
+```go
+// stockAmount 는 진단 로그용 (종목명, 금액) 쌍.
+type stockAmount struct {
+	name   string
+	amount float64
+}
+
+// indexWeightDiag 는 표에 나오지 않지만 사용자가 알아야 하는 신호.
+type indexWeightDiag struct {
+	unclassified []stockAmount // 미분류로 빠진 종목(누적매수 내림차순)
+	oversold     []stockAmount // 매도수량 > 매수수량 — 기간 밖 매수분 누락 의심(누적매수 내림차순)
+}
+
+func aggregateIndexWeight(trades []model.Trade) ([]indexWeightRow, indexWeightDiag) {
+```
+
+집계 루프 안에서 두 경우를 수집한다(종목 단위 루프에서):
+
+```go
+	for k, a := range stocks {
+		group, bucket := bucketOf(a.sector, a.industry)
+		if group == groupUnknown {
+			diag.unclassified = append(diag.unclassified, stockAmount{k.name, a.buyAmount})
+		}
+		if a.sellQty > a.buyQty {
+			diag.oversold = append(diag.oversold, stockAmount{k.name, a.buyAmount})
+		}
+		...
+```
+
+두 슬라이스를 금액 내림차순으로 정렬한다(동률은 종목명 사전식 — 실행마다 순서가 흔들리지 않도록.
+`stocks` 맵 순회는 비결정적이다):
+
+```go
+	sortByAmountDesc := func(list []stockAmount) {
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].amount != list[j].amount {
+				return list[i].amount > list[j].amount
+			}
+			return list[i].name < list[j].name
+		})
+	}
+	sortByAmountDesc(diag.unclassified)
+	sortByAmountDesc(diag.oversold)
+```
+
+로깅 헬퍼(같은 파일):
+
+```go
+// diagTopN 은 로그에 실을 상위 N 종목명. 전체를 찍으면 로그가 종목 수만큼 길어진다.
+const diagTopN = 5
+
+// logIndexWeightDiag 는 표에 안 나오는 신호를 경고로 남긴다.
+func logIndexWeightDiag(d indexWeightDiag) {
+	if len(d.unclassified) > 0 {
+		slog.Warn("지수 분류 미분류 종목 — OpenAI/FMP 키 또는 taxonomy 밖 카테고리 확인 필요",
+			"종목수", len(d.unclassified), "상위", diagNames(d.unclassified))
+	}
+	if len(d.oversold) > 0 {
+		slog.Warn("매도수량 > 매수수량 — 기간 밖 매수분이 빠진 것으로 보임(보유원금 0 처리)",
+			"종목수", len(d.oversold), "상위", diagNames(d.oversold))
+	}
+}
+
+func diagNames(list []stockAmount) []string {
+	n := len(list)
+	if n > diagTopN {
+		n = diagTopN
+	}
+	names := make([]string, 0, n)
+	for _, s := range list[:n] {
+		names = append(names, s.name)
+	}
+	return names
+}
+```
+
+**종목 키 통일** — `aggregateStock`(`internal/summary/sections.go`)과 `aggregateIndexWeight` 가
+"같은 종목"의 정의를 각자 들고 있다(필드 순서만 다르고 내용은 동일). 한쪽만 바뀌면 대시보드의
+종목별 요약과 지수 vs 나머지가 서로 다른 종목 수를 보고하는데 그걸 잡을 테스트가 없다.
+키 타입만 공용화한다(`internal/summary/sections.go` 상단 또는 `index_weight.go`):
+
+```go
+// stockKey 는 "같은 종목"의 정의. 대시보드의 종목 단위 집계가 모두 이 키를 쓴다
+// (한쪽만 바꾸면 섹션끼리 종목 수가 어긋난다).
+type stockKey struct{ name, code, account, currency string }
+
+func stockKeyOf(t model.Trade) stockKey {
+	return stockKey{t.StockName, t.StockCode, t.Account, t.Currency}
+}
+```
+
+`aggregateStock` 과 `aggregateIndexWeight` 의 로컬 `key` 타입을 이걸로 교체한다. 두 함수의
+집계 필드·정렬·소비 형태는 다르므로 **루프 자체는 합치지 않는다**(누적 필드가 다르고, 매수/매도
+아닌 행에 대한 처리도 다르다).
+
+테스트 추가:
+
+```go
+// 미분류·과매도 종목이 진단에 잡히고 금액 내림차순으로 정렬된다.
+func TestAggregateIndexWeight_Diagnostics(t *testing.T) {
+	trades := []model.Trade{
+		{StockName: "미분류소액", StockCode: "A", Account: "해외", Currency: "EUR",
+			TradeType: "매수", Quantity: 1, AmountKRW: 100_000},
+		{StockName: "미분류거액", StockCode: "B", Account: "해외", Currency: "EUR",
+			TradeType: "매수", Quantity: 1, AmountKRW: 900_000},
+		{StockName: "과매도", StockCode: "C", Account: "국내", Currency: "KRW",
+			Sector: "ETF", Industry: "한국주식", TradeType: "매수", Quantity: 10, AmountKRW: 100_000},
+		{StockName: "과매도", StockCode: "C", Account: "국내", Currency: "KRW",
+			Sector: "ETF", Industry: "한국주식", TradeType: "매도", Quantity: 30, AmountKRW: 330_000},
+	}
+	_, diag := aggregateIndexWeight(trades)
+
+	if assert.Len(t, diag.unclassified, 2) {
+		assert.Equal(t, "미분류거액", diag.unclassified[0].name, "금액 내림차순")
+		assert.Equal(t, "미분류소액", diag.unclassified[1].name)
+	}
+	if assert.Len(t, diag.oversold, 1) {
+		assert.Equal(t, "과매도", diag.oversold[0].name)
+	}
+}
+
+// 상위 N 만 로그에 싣는다.
+func TestDiagNames_CapsAtTopN(t *testing.T) {
+	list := make([]stockAmount, diagTopN+3)
+	for i := range list {
+		list[i] = stockAmount{name: fmt.Sprintf("종목%d", i)}
+	}
+	assert.Len(t, diagNames(list), diagTopN)
+	assert.Len(t, diagNames(list[:2]), 2)
+}
+```
+
+기존 테스트들의 `aggregateIndexWeight(...)` 호출을 `rows, _ := ...` 형태로 고친다.
+
 - [ ] **Step 1: 실패하는 테스트 작성**
 
 `internal/summary/index_weight_test.go` 에 추가:
@@ -1941,7 +2091,7 @@ func indexWeightPieHelper(rows []indexWeightRow) [][]any {
 // 표는 A:E, 파이 차트용 헬퍼 데이터는 Y:Z 에 쓴다
 // (N:O=계좌별 파이, W:X=나라별 섹터 파이가 이미 쓰고 있고, 초기화 범위가 A1:Z 라 AA 이후는 안 지워진다).
 func (g *Generator) writeIndexWeight(ctx context.Context, trades []model.Trade, startRow int) (int, error) {
-	rows := aggregateIndexWeight(trades)
+	rows, diag := aggregateIndexWeight(trades)
 	values, groupOffsets := indexWeightValues(rows)
 
 	endRow := startRow + len(values) - 1
@@ -1964,14 +2114,7 @@ func (g *Generator) writeIndexWeight(ctx context.Context, trades []model.Trade, 
 	}
 
 	g.collectIndexWeightFormats(startRow, endRow, groupOffsets)
-
-	// 미분류가 남으면 그 금액만큼 지수/나머지 판단에서 빠진 것이므로 눈에 띄게 알린다.
-	for _, r := range rows {
-		if r.group == groupUnknown && r.bucket == "" && r.buy > 0 {
-			slog.Warn("지수 분류 미분류 잔량 — OpenAI/FMP 키 또는 taxonomy 밖 카테고리 확인 필요",
-				"누적매수", r.buy, "비중", r.buyPct)
-		}
-	}
+	logIndexWeightDiag(diag)
 	slog.Info("대시보드 지수 vs 나머지 작성", "rows", len(rows))
 	return startRow + len(values), nil
 }
