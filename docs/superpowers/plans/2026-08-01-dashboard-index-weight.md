@@ -706,6 +706,41 @@ func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier)
 	// classifyETF 는 주입되는 함수라 그 보장을 가정하지 않는다.
 ```
 
+- [ ] **Step 3C: 예외 블록에 우선순위 문장 추가**
+
+예외 5개 중 둘 이상에 매칭되는 펀드가 있는데(DGRO `iShares Core Dividend Growth ETF` 는
+배당 bullet 의 `Dividend Growth` 와 팩터 bullet 의 `Growth` 양쪽에 걸린다) 프롬프트가 그때 무엇을
+적용할지 말하지 않는다. 지금은 `배당` 과 `팩터·스타일` 이 같은 버킷으로 가서 재무 영향이 없지만,
+`배당` + `TOP10 바스켓`(한국 ETF 작명에 흔하다)처럼 버킷이 갈리는 겹침이 생기면 결과가 흔들린다.
+
+`internal/etfclass/classifier.go` 의 `classifyRules` 첫 문장에 한 절을 더한다:
+
+```
+먼저 아래 예외에 해당하는지 보세요. 해당하면 이름에 지수명이 들어 있어도
+시장대표 지수로 분류하지 마세요(지수를 그대로 추종하지 않기 때문입니다).
+여러 예외에 해당하면 위에 있는 것을 적용하세요.
+```
+
+`categoryNormalizer` 주석도 실제 커버 범위에 맞춘다(현재 "전각 괄호, 내부 공백" 이라고만 쓰여 있으나
+실제로는 ASCII 공백·탭·NBSP·전각 공백 넷을 다룬다):
+
+```go
+// categoryNormalizer 는 모델 응답의 표기 흔들림을 흡수한다
+// (전각 괄호, ASCII 공백·탭, NBSP U+00A0, 전각 공백 U+3000).
+```
+
+테스트로 예외 내부 순서를 고정한다(`internal/etfclass/classifier_test.go`):
+
+```go
+// 여러 예외에 걸리는 펀드(DGRO 는 "Dividend Growth" 와 "Growth" 양쪽)가 있으므로
+// 우선순위 진술과 예외 순서를 함께 고정한다.
+func TestClassifyRules_ExceptionPriorityIsStated(t *testing.T) {
+	assert.Contains(t, classifyRules, "여러 예외에 해당하면 위에 있는 것을 적용하세요")
+	assert.Less(t, strings.Index(classifyRules, "배당이 핵심인 펀드"),
+		strings.Index(classifyRules, "팩터·스타일:"), "배당 예외가 팩터보다 앞에 와야 한다")
+}
+```
+
 - [ ] **Step 4: 캐시 버전 v5 로 올리기**
 
 Task 2 의 v4 재분류 버스트 중 오염됐을 수 있는 항목을 무효화한다.
@@ -1942,7 +1977,8 @@ git commit -m "feat(summary): 대시보드에 지수 vs 나머지 섹션과 파�
 ```
 
 그리고 `**internal/bizcat**` 항목의 ETF 산업 설명에서 `internal/bizcat/etfclass.go` 를
-`internal/etfclass` 로, `고정 25종` 을 `고정 27종(미국 시장대표는 S&P500/나스닥/미국주식(기타)로 분리)` 로 고친다.
+`internal/etfclass` 로, `고정 25종` 을
+`고정 28종(미국 시장대표는 S&P500/나스닥/미국주식(기타)로 분리, 팩터·스타일 포함)` 로 고친다.
 
 - [ ] **Step 3: 대시보드 섹션 설명에 새 섹션 추가**
 
