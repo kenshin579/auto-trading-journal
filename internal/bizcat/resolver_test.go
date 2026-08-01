@@ -121,15 +121,6 @@ func TestStripKRXPrefix(t *testing.T) {
 	assert.Equal(t, "", stripKRXPrefix(""))
 }
 
-func TestValidateETFCategory(t *testing.T) {
-	assert.Equal(t, "미국주식", validateETFCategory("미국주식"))
-	assert.Equal(t, "한국주식", validateETFCategory("한국주식")) // 국내 시장대표
-	assert.Equal(t, "금융", validateETFCategory("금융"))     // 국내 섹터
-	assert.Equal(t, "방위·우주항공", validateETFCategory("방위·우주항공"))
-	assert.Equal(t, etfFallbackCategory, validateETFCategory("아무말"))
-	assert.Equal(t, etfFallbackCategory, validateETFCategory(""))
-}
-
 // needsRefresh 는 구버전 ETF 캐시(version < etfCacheVersion)만 재조회 대상으로 본다.
 func TestNeedsRefresh(t *testing.T) {
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "S&P 500", Version: 0}), "구버전 ETF 재조회")

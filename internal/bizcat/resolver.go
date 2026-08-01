@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kenshin579/auto-trading-journal/internal/etfclass"
 	kis "github.com/kenshin579/korea-investment-stock"
 	"github.com/kenshin579/korea-investment-stock/domestic"
 )
@@ -34,10 +35,10 @@ type Resolver struct {
 	dirty       bool
 }
 
-// EnableETFClassifier 는 9999 미분류 ETF 의 OpenAI 종목명 분류를 활성화한다.
+// EnableETFClassifier 는 ETF 종목명의 OpenAI 카테고리 분류를 활성화한다.
 // apiKey 가 비면 분류기는 nil 로 남아 지수명 폴백을 사용한다.
 func (r *Resolver) EnableETFClassifier(apiKey, model string) {
-	r.classifyETF = newETFClassifier(apiKey, model)
+	r.classifyETF = etfclass.New(apiKey, model)
 }
 
 func New(cachePath string) *Resolver {

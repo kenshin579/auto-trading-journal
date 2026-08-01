@@ -1,4 +1,6 @@
-package bizcat
+// Package etfclass 는 ETF 종목명을 고정 taxonomy 의 카테고리 하나로 분류한다.
+// 국내(internal/bizcat)와 해외(internal/fmpcat) 가 같은 체계를 공유하기 위해 분리돼 있다.
+package etfclass
 
 import (
 	"context"
@@ -11,9 +13,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// etfCategories 는 모든 ETF 를 종목명으로 분류할 고정 taxonomy.
+// Categories 는 모든 ETF 를 종목명으로 분류할 고정 taxonomy.
 // 국내 시장/섹터 ETF 와 해외·테마 ETF 를 하나의 일관된 카테고리 체계로 통일한다.
-var etfCategories = []string{
+var Categories = []string{
 	// 지역/시장대표
 	"한국주식", "미국주식", "중국주식", "일본주식", "인도주식", "베트남주식", "글로벌주식",
 	// 섹터/테마
@@ -25,29 +27,29 @@ var etfCategories = []string{
 	"기타테마",
 }
 
-// etfFallbackCategory 는 taxonomy 밖 응답/분류 불가 시 사용.
-const etfFallbackCategory = "기타테마"
+// FallbackCategory 는 taxonomy 밖 응답/분류 불가 시 사용.
+const FallbackCategory = "기타테마"
 
-var etfCategorySet = func() map[string]bool {
-	m := make(map[string]bool, len(etfCategories))
-	for _, c := range etfCategories {
+var categorySet = func() map[string]bool {
+	m := make(map[string]bool, len(Categories))
+	for _, c := range Categories {
 		m[c] = true
 	}
 	return m
 }()
 
-// validateETFCategory 는 분류 결과가 taxonomy 안에 있으면 그대로, 아니면 기타테마로 정규화한다.
-func validateETFCategory(s string) string {
+// Validate 는 분류 결과가 taxonomy 안에 있으면 그대로, 아니면 FallbackCategory 로 정규화한다.
+func Validate(s string) string {
 	s = strings.TrimSpace(s)
-	if etfCategorySet[s] {
+	if categorySet[s] {
 		return s
 	}
-	return etfFallbackCategory
+	return FallbackCategory
 }
 
-const etfClassifyTimeout = 30 * time.Second
+const classifyTimeout = 30 * time.Second
 
-var etfSystemPrompt = fmt.Sprintf(`당신은 한국 상장 ETF 분류 전문가입니다.
+var systemPrompt = fmt.Sprintf(`당신은 ETF 분류 전문가입니다.
 ETF 종목명을 보고 아래 카테고리 중 정확히 하나로 분류하세요.
 
 사용 가능한 카테고리: %s
@@ -62,11 +64,11 @@ ETF 종목명을 보고 아래 카테고리 중 정확히 하나로 분류하세
 - 금·은·원유 등 상품은 원자재. 리츠·부동산·인프라는 리츠·부동산. 배당·커버드콜은 배당.
 - 애매하거나 위에 없으면 기타테마.
 
-반드시 JSON 으로만 응답: {"category": "<카테고리>"}`, strings.Join(etfCategories, ", "))
+반드시 JSON 으로만 응답: {"category": "<카테고리>"}`, strings.Join(Categories, ", "))
 
-// newETFClassifier 는 ETF 종목명 → 카테고리 분류 함수를 만든다. apiKey 가 비면 nil 을 반환한다
-// (호출부는 nil 이면 지수명 폴백을 사용). 결과는 bizcat 영구 캐시에 저장돼 코드당 1회만 호출된다.
-func newETFClassifier(apiKey, model string) func(name string) (string, error) {
+// New 는 ETF 종목명 → 카테고리 분류 함수를 만든다. apiKey 가 비면 nil 을 반환한다
+// (호출부는 nil 이면 각자의 폴백을 사용). 결과는 호출부 영구 캐시에 저장돼 종목당 1회만 호출된다.
+func New(apiKey, model string) func(name string) (string, error) {
 	if apiKey == "" {
 		return nil
 	}
@@ -75,12 +77,12 @@ func newETFClassifier(apiKey, model string) func(name string) (string, error) {
 	}
 	client := openai.NewClient(apiKey)
 	return func(name string) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), etfClassifyTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), classifyTimeout)
 		defer cancel()
 		resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 			Model: model,
 			Messages: []openai.ChatCompletionMessage{
-				{Role: openai.ChatMessageRoleSystem, Content: etfSystemPrompt},
+				{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 				{Role: openai.ChatMessageRoleUser, Content: "ETF 종목명: " + name},
 			},
 			Temperature: 0,
@@ -99,6 +101,6 @@ func newETFClassifier(apiKey, model string) func(name string) (string, error) {
 			slog.Warn("ETF OpenAI 응답 파싱 실패", "name", name, "err", err)
 			return "", err
 		}
-		return validateETFCategory(out.Category), nil
+		return Validate(out.Category), nil
 	}
 }
