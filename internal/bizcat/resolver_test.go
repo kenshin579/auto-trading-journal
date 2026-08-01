@@ -126,6 +126,7 @@ func TestNeedsRefresh(t *testing.T) {
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "S&P 500", Version: 0}), "구버전 ETF 재조회")
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: ""}), "산업 빈 구버전 ETF 재조회")
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "금현물지수", Version: 2}), "직전 버전 ETF 도 재분류 대상")
+	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: 3}), "v3 는 미국 지수 세분 전이라 재분류")
 	assert.False(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: etfCacheVersion}), "현재 버전 ETF 유지")
 	assert.False(t, needsRefresh(entry{Sector: "전기·전자", Industry: "반도체"}), "비-ETF 는 재조회 안 함")
 }
