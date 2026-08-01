@@ -51,7 +51,8 @@ func (t Trade) ToDomesticRow() []any {
 		t.Quantity, t.Price, t.Amount, t.Fee, t.Profit, rate(t.ProfitRate)}
 }
 
-// ToForeignRow: 해외 17컬럼 (종목명 뒤 섹터/산업; 해외는 공란)
+// ToForeignRow: 해외 17컬럼 (종목명 뒤 섹터/산업 — FMP 로 채워지고, ETF·펀드는 국내와 같은
+// 표기로 통일된다. 미지원 통화·미커버 종목만 공란)
 func (t Trade) ToForeignRow() []any {
 	return []any{t.Date, t.TradeType, t.Currency, t.StockCode, t.StockName, t.Sector, t.Industry,
 		t.Quantity, t.Price, t.Amount, t.ExchangeRate, t.AmountKRW,
