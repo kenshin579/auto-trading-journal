@@ -148,7 +148,7 @@ logging:
 **Environment Variables** (optional override):
 - `GOOGLE_SPREADSHEET_ID`: 스프레드시트 ID
 - `SERVICE_ACCOUNT_PATH`: 서비스 계정 키 파일 경로
-- `STOCK_DATA_OPENAI_API_KEY`: OpenAI 키(국내 ETF 산업 분류 + 대시보드 섹터 분류). 없으면 해당 기능 비활성
+- `STOCK_DATA_OPENAI_API_KEY`: OpenAI 키(국내·해외 ETF 산업 분류 + 대시보드 섹터 분류). 없으면 해당 기능 비활성(ETF 산업은 KIS 지수명/FMP 원본 산업으로 폴백)
 - `FMP_API_KEY`: FMP 키(해외 종목 섹터/산업). 없으면 해외 보강 비활성(공란)
 
 ### Google Sheets Setup
