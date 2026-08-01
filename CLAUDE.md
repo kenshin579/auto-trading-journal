@@ -95,9 +95,17 @@ internal/
 
 **internal/sheets** (`client.go`, `format.go`, `chart.go`):
 - Google Sheets API v4 래퍼(서비스계정 인증), 값 I/O, 포맷/색상/필터/차트, 레이트리밋 재시도(`executeWithRetry`)
+- ⚠️ **모든** API 호출(읽기 `Spreadsheets.Get`/`Values.Get`, 쓰기 `values.update`/`batchUpdate`)은
+  `executeWithRetry` 를 거쳐야 한다. Sheets 쿼터는 **읽기/쓰기 각각 분당 60회(프로젝트·사용자 단위)** 이고
+  버킷이 비면 최대 60초를 기다려야 회복되므로, 재시도 누적 대기가 60초를 넘도록 `maxRetries=6`
+  (1+2+4+8+16+32≈63초)으로 잡혀 있다(`retry_test.go` 의 `TestRetryWaitBudgetCoversQuotaWindow` 가 이 불변식을 지킨다).
+- `NewWithEndpoint` 는 테스트용 fake 서버(httptest)를 향하는 무인증 클라이언트다.
 
 **internal/writer** (`writer.go`, `headers.go`, `reader.go`):
 - `EnsureSheetExists`, `GetExistingKeys`(중복키), `InsertTrades`(포맷 적용), `ReadAllTrades`(대시보드 입력), 국내/해외 헤더 상수
+- `ReadAllTrades` 는 읽기 쿼터를 아끼기 위해 **시트당 그리드 조회 1회**(`A1:Q10000`, 헤더=1행)만 쓴다.
+  또한 조회 실패를 스킵하지 않고 **에러로 전파**한다 — 일부 시트만 실패한 채 진행하면 대시보드가
+  부분 데이터로 통째로 재작성되어 기존 내용을 잃는다.
 
 **internal/summary** (`summary.go`, `sections.go`, `insights.go`, `formats.go`, `charts.go`):
 - 단일 "대시보드" 시트 생성: 포트폴리오/월별/종목별 요약 + 투자지표(섹터별 투자비중 포함)/매매인사이트/월별추이 + basic/pie 차트. 매 실행 초기화 후 재작성
