@@ -51,6 +51,7 @@ type Generator struct {
 	pieDataRange        rowRange           // 파이 차트용 데이터 (계좌별 투자비중)
 	tradeCountDataRange rowRange           // 월별 매수/매도 건수·금액
 	countrySectorPies   []countrySectorPie // 국가별 섹터 비중 pie (W:X 헬퍼)
+	indexWeightPie      rowRange           // 지수 vs 나머지 pie (Y:Z 헬퍼)
 }
 
 // rowRange 는 차트가 참조할 행 범위 (1-based, inclusive). ok=false 면 데이터 없음.
@@ -91,6 +92,10 @@ func (g *Generator) GenerateAll(ctx context.Context, trades []model.Trade) error
 	currentRow++ // 빈 행
 	metricsStart := currentRow
 	if currentRow, err = g.writeInvestmentMetrics(ctx, trades, currentRow); err != nil {
+		return err
+	}
+	currentRow++ // 빈 행
+	if currentRow, err = g.writeIndexWeight(ctx, trades, currentRow); err != nil {
 		return err
 	}
 	currentRow++ // 빈 행

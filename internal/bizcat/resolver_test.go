@@ -92,26 +92,47 @@ func TestExtractSectorIndustry(t *testing.T) {
 }
 
 // resolveETFIndustry: 분류기가 있으면 코드 분류 여부와 무관하게 종목명 OpenAI 결과로 통일하고,
-// 분류기 미설정/실패 시에만 KIS 지수명(접두사 제거)으로 폴백한다.
+// 분류기 미설정(nil) 시에만 KIS 지수명(접두사 제거)으로 폴백한다. 분류기가 있는데 실패하면
+// 일시적 오류를 영구 캐시하지 않도록 에러를 전파한다.
 func TestResolveETFIndustry(t *testing.T) {
 	// 분류기 있으면 종목명 OpenAI 결과 사용
-	got := resolveETFIndustry("KRX 반도체", "KODEX 반도체",
+	got, err := resolveETFIndustry("KRX 반도체", "KODEX 반도체",
 		func(name string) (string, error) { return "반도체", nil })
+	assert.NoError(t, err)
 	assert.Equal(t, "반도체", got)
 
 	// 코드 분류였지만 verbose 한 KRX 지수명도 OpenAI 로 정규화된다
-	got = resolveETFIndustry("S&P 500 Future Index TR", "KODEX 미국S&P500선물",
-		func(name string) (string, error) { return "미국주식", nil })
-	assert.Equal(t, "미국주식", got)
+	got, err = resolveETFIndustry("S&P 500 Future Index TR", "KODEX 미국S&P500선물",
+		func(name string) (string, error) { return "S&P500", nil })
+	assert.NoError(t, err)
+	assert.Equal(t, "S&P500", got)
 
-	// 분류기 미설정(nil) → KIS 지수명 폴백(접두사 제거)
-	got = resolveETFIndustry("KRX 반도체", "KODEX 반도체", nil)
+	// 분류기 미설정(nil) → KIS 지수명 폴백(접두사 제거). 설정 상태이므로 에러가 아니다.
+	got, err = resolveETFIndustry("KRX 반도체", "KODEX 반도체", nil)
+	assert.NoError(t, err)
 	assert.Equal(t, "반도체", got)
 
-	// 분류기 실패 → 지수명 폴백
-	got = resolveETFIndustry("S&P 500", "KODEX 미국S&P500",
+	// 분류기가 있는데 실패 → 에러 전파(일시 오류를 영구 캐시하지 않도록)
+	_, err = resolveETFIndustry("S&P 500", "KODEX 미국S&P500",
 		func(name string) (string, error) { return "", assert.AnError })
-	assert.Equal(t, "S&P 500", got)
+	assert.Error(t, err, "일시적 분류 실패는 fetch 실패로 전파")
+}
+
+// 분류 실패는 기존 캐시를 덮어쓰지 않고, 다음 실행에 재시도할 수 있게 둔다.
+func TestResolve_ClassifyFailureDoesNotPoisonCache(t *testing.T) {
+	calls := 0
+	r := &Resolver{
+		cache: map[string]entry{},
+		fetch: func(code, name string) (string, string, error) {
+			calls++
+			return "", "", assert.AnError // 분류 실패가 fetch 실패로 전파된 상황
+		},
+	}
+	s, i := r.Resolve("069500", "KODEX 200")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "069500", "실패는 캐시에 남지 않는다")
+	assert.Equal(t, 1, calls)
 }
 
 func TestStripKRXPrefix(t *testing.T) {
@@ -121,21 +142,13 @@ func TestStripKRXPrefix(t *testing.T) {
 	assert.Equal(t, "", stripKRXPrefix(""))
 }
 
-func TestValidateETFCategory(t *testing.T) {
-	assert.Equal(t, "미국주식", validateETFCategory("미국주식"))
-	assert.Equal(t, "한국주식", validateETFCategory("한국주식")) // 국내 시장대표
-	assert.Equal(t, "금융", validateETFCategory("금융"))     // 국내 섹터
-	assert.Equal(t, "방위·우주항공", validateETFCategory("방위·우주항공"))
-	assert.Equal(t, etfFallbackCategory, validateETFCategory("아무말"))
-	assert.Equal(t, etfFallbackCategory, validateETFCategory(""))
-}
-
 // needsRefresh 는 구버전 ETF 캐시(version < etfCacheVersion)만 재조회 대상으로 본다.
 func TestNeedsRefresh(t *testing.T) {
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "S&P 500", Version: 0}), "구버전 ETF 재조회")
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: ""}), "산업 빈 구버전 ETF 재조회")
 	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "금현물지수", Version: 2}), "직전 버전 ETF 도 재분류 대상")
-	assert.False(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: etfCacheVersion}), "현재 버전 ETF 유지")
+	assert.True(t, needsRefresh(entry{Sector: "ETF", Industry: "미국주식", Version: 3}), "v3 는 미국 지수 세분 전이라 재분류")
+	assert.False(t, needsRefresh(entry{Sector: "ETF", Industry: "S&P500", Version: etfCacheVersion}), "현재 버전 ETF 유지")
 	assert.False(t, needsRefresh(entry{Sector: "전기·전자", Industry: "반도체"}), "비-ETF 는 재조회 안 함")
 }
 
@@ -162,6 +175,39 @@ func TestResolve_StaleETFRefetchFailureKeepsCached(t *testing.T) {
 	s, i := r.Resolve("379780", "RISE 미국S&P500")
 	assert.Equal(t, "ETF", s)
 	assert.Equal(t, "S&P 500", i)
+}
+
+// KIS 클라이언트가 없으면(키 미설정) 조회는 "성공+빈 값"이 아니라 실패여야 한다.
+// 빈 값을 성공으로 캐시하면 needsRefresh 가 그 항목(Sector != "ETF")을 재조회 대상에서
+// 빼버려 영구 고착되고, saveCache 가 git 추적 캐시 파일에 빈 값을 기록하며,
+// backfill 이 시트의 섹터/산업 열을 공란으로 덮어쓴다.
+func TestNoClientFetch_ReturnsError(t *testing.T) {
+	_, _, err := noClientFetch("069500", "KODEX 200")
+	require.Error(t, err, "클라이언트 없음은 성공이 아니다")
+	assert.ErrorIs(t, err, errNoKISClient)
+}
+
+// 클라이언트가 없으면 기존 캐시를 빈 값으로 덮지 않는다(구버전 ETF 항목도 그대로 보존).
+func TestResolve_NoClientDoesNotOverwriteCache(t *testing.T) {
+	r := &Resolver{
+		cache: map[string]entry{"069500": {Sector: "ETF", Industry: "미국주식", Version: 3}}, // 구버전 → 재조회 대상
+		fetch: noClientFetch,
+	}
+	s, i := r.Resolve("069500", "KODEX 200")
+	assert.Equal(t, "ETF", s, "실패 시 기존 값 보존")
+	assert.Equal(t, "미국주식", i)
+	assert.Equal(t, entry{Sector: "ETF", Industry: "미국주식", Version: 3}, r.cache["069500"], "캐시가 덮이지 않음")
+	assert.False(t, r.dirty, "실패는 파일에 기록되지 않음")
+}
+
+// 캐시가 없던 코드도 빈 값으로 캐시되지 않는다(다음 실행에 재시도해야 한다).
+func TestResolve_NoClientDoesNotCacheEmpty(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: noClientFetch}
+	s, i := r.Resolve("005930", "삼성전자")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "005930", "빈 값을 영구 캐시하지 않는다")
+	assert.False(t, r.dirty)
 }
 
 func TestCacheSaveLoad_Roundtrip_PreservesKorean(t *testing.T) {

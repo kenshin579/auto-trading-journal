@@ -24,15 +24,53 @@ func padStockCode(code string) string {
 
 // backfillValues 는 (키, 보조) 슬라이스를 (섹터,산업) 2D 값으로 변환한다(섹터/산업 2열 일괄 기록용).
 // 국내: 키=종목코드, 보조=종목명(9999 ETF OpenAI 입력). 해외: 키=티커, 보조=통화(거래소 접미사).
-func backfillValues(keys, aux []string, resolve func(key, aux string) (sector, industry string)) [][]interface{} {
+//
+// resolve 가 빈 값을 돌려주면 시트의 기존 값(existing)을 유지한다 — 키 미설정이나 일시 실패로
+// 조회가 비었을 때 이미 채워둔 열을 지우지 않기 위해서다(사용자가 손으로 채운 값 포함).
+// 섹터/산업은 각각 판단해 한쪽만 실패한 경우 나머지를 되돌리지 않는다. 둘 다 비면 빈 값.
+// existing 은 시트 조회 결과라 keys 보다 짧거나 행이 짧을 수 있다(인덱스 방어).
+//
+// 두 번째 반환값은 기존 값을 유지한(=조회가 빈) 키 목록이다. 유지는 안전하지만 조용해서,
+// 옛 스키마 값이 그대로 남아 대시보드 분류가 틀리는 상황을 호출부가 경고로 알린다.
+func backfillValues(keys, aux []string, existing [][]string, resolve func(key, aux string) (sector, industry string)) ([][]interface{}, []string) {
 	out := make([][]interface{}, len(keys))
+	var kept []string
 	for i, key := range keys {
 		a := ""
 		if i < len(aux) {
 			a = aux[i]
 		}
 		s, ind := resolve(key, a)
+		if i < len(existing) {
+			old := existing[i]
+			usedOld := false
+			if s == "" && len(old) > 0 && old[0] != "" {
+				s, usedOld = old[0], true
+			}
+			if ind == "" && len(old) > 1 && old[1] != "" {
+				ind, usedOld = old[1], true
+			}
+			if usedOld {
+				kept = append(kept, key)
+			}
+		}
 		out[i] = []interface{}{s, ind}
+	}
+	return out, kept
+}
+
+// existingPairs 는 시트 조회 결과를 행별 [섹터, 산업] 문자열 쌍으로 정규화한다
+// (빈 행·짧은 행·nil 셀은 "").
+func existingPairs(vals [][]interface{}) [][]string {
+	out := make([][]string, len(vals))
+	for i, row := range vals {
+		pair := []string{"", ""}
+		for j := 0; j < 2 && j < len(row); j++ {
+			if row[j] != nil {
+				pair[j] = fmt.Sprintf("%v", row[j])
+			}
+		}
+		out[i] = pair
 	}
 	return out
 }
@@ -48,30 +86,78 @@ func colStrings(vals [][]interface{}, idx int) []string {
 	return out
 }
 
+// backfillLogTopN 은 "기존 값 유지" 경고에 실을 상위 종목 수(전체를 찍으면 행 수만큼 길어진다).
+const backfillLogTopN = 5
+
+// backfillSummary 는 백필 한 번의 결과 집계. 백필은 수 분 걸리고 로그가 길어서,
+// 끝에서 "무엇이 실제로 갱신됐는지"를 한 줄로 볼 수 있어야 한다.
+type backfillSummary struct {
+	updated  int // 갱신(쓰기 완료)한 시트 수
+	skipped  int // 조회 실패로 스킵한 시트 수(구포맷·비매매일지 스킵은 정상이라 세지 않는다)
+	keptRows int // 조회가 비어 기존 값을 유지한 행 수 합계
+}
+
+// incomplete 는 "일부가 갱신되지 않음" 상태인지. 요약 로그 레벨을 가른다.
+// 중간에 에러로 멈춘 경우도 포함한다 — 그 시점까지의 요약은 완전한 성공이 아니다.
+func (s backfillSummary) incomplete(err error) bool {
+	return s.skipped > 0 || s.keptRows > 0 || err != nil
+}
+
+// log 는 요약 한 줄을 남긴다. 정상이면 Info, 스킵·유지 행이 있거나 에러로 멈췄으면 Error —
+// 레벨이 갈려야 긴 백필 출력 끝에서 눈에 띈다.
+func (s backfillSummary) log(err error) {
+	if s.incomplete(err) {
+		slog.Error("섹터/산업 백필 요약 — 일부가 갱신되지 않았다",
+			"갱신시트", s.updated, "스킵시트", s.skipped, "기존값유지행", s.keptRows,
+			"조치", "API 키(KIS/FMP/OpenAI)를 확인하고 백필을 다시 실행할 것. "+
+				"유지된 행은 대시보드에서 개별종목으로 잡힐 수 있다")
+		return
+	}
+	slog.Info("섹터/산업 백필 요약 — 전부 갱신됨", "갱신시트", s.updated)
+}
+
 // BackfillSectors 는 기존 매매일지 시트의 섹터/산업 열을 일괄 채운다(시트당 한 번의 batch).
 //   - 국내 시트: 종목코드(C)+종목명(D) → domesticResolve → E·F 열.
 //   - 해외 시트: 통화(C)+종목코드/티커(D) → foreignResolve(ticker, currency) → F·G 열.
 //
-// 구포맷/비매매일지 시트는 스킵.
+// 조회 결과가 비면 시트의 기존 값을 유지한다(빈 값으로 덮지 않는다) — 키 미설정·일시 실패로
+// 시트가 지워지면 사용자가 손으로 채운 값까지 잃기 때문이다. 그래서 쓰기 전에 해당 열을 읽는다.
+//
+// 구포맷/비매매일지 시트는 스킵. 끝에 요약 한 줄을 남긴다(backfillSummary).
 func (w *Writer) BackfillSectors(
 	ctx context.Context,
 	domesticResolve func(code, name string) (sector, industry string),
 	foreignResolve func(ticker, currency string) (sector, industry string),
 ) error {
+	s, err := w.backfillSectors(ctx, domesticResolve, foreignResolve)
+	s.log(err)
+	return err
+}
+
+// backfillSectors 는 실제 백필을 수행하고 집계를 돌려준다(요약 로그는 호출부에서).
+// 집계를 반환값으로 두면 "실제로 세는지"를 로그 캡처 없이 테스트할 수 있다.
+func (w *Writer) backfillSectors(
+	ctx context.Context,
+	domesticResolve func(code, name string) (sector, industry string),
+	foreignResolve func(ticker, currency string) (sector, industry string),
+) (backfillSummary, error) {
+	var summary backfillSummary
 	sheetNames, err := w.getSheets(ctx)
 	if err != nil {
-		return err
+		return summary, err
 	}
 	for _, sheetName := range sheetNames {
 		headerVals, err := w.client.GetValues(ctx, sheetName+"!A1:Q1")
 		if err != nil {
 			slog.Error("헤더 조회 실패, 스킵", "sheet", sheetName, "err", err)
+			summary.skipped++
 			continue
 		}
 		header := extractHeaderRow(headerVals)
 		rowVals, err := w.client.GetValues(ctx, sheetName+"!C2:D")
 		if err != nil {
 			slog.Error("종목 행 조회 실패, 스킵", "sheet", sheetName, "err", err)
+			summary.skipped++
 			continue
 		}
 
@@ -98,11 +184,27 @@ func (w *Writer) BackfillSectors(
 		if len(keys) == 0 {
 			continue
 		}
-		values := backfillValues(keys, aux, resolve)
-		if err := w.client.BatchUpdateValues(ctx, map[string][][]interface{}{writeRange: values}); err != nil {
-			return fmt.Errorf("섹터 백필(%s): %w", sheetName, err)
+		// 쓸 범위를 그대로 한 번 읽어 기존 값을 확보한다(시트당 읽기 1회 추가 — 시트 수가
+		// 3~5개라 분당 60회 읽기 쿼터에 여유가 있다). 조회가 비었을 때 이미 채워둔 열을
+		// 지우지 않기 위해서다. 읽기가 실패하면 기존 값을 모르는 채로 덮게 되므로 스킵한다.
+		existingVals, err := w.client.GetValues(ctx, writeRange)
+		if err != nil {
+			slog.Error("기존 섹터/산업 조회 실패, 스킵", "sheet", sheetName, "err", err)
+			summary.skipped++
+			continue
 		}
+		values, kept := backfillValues(keys, aux, existingPairs(existingVals), resolve)
+		summary.keptRows += len(kept)
+		if len(kept) > 0 {
+			slog.Warn("조회 결과가 비어 시트의 기존 섹터/산업을 유지함 — API 키 미설정이나 일시 실패일 수 있다. "+
+				"옛 스키마 값이 남으면 대시보드 지수 분류가 틀어지므로, 키를 확인하고 백필을 다시 돌릴 것",
+				"sheet", sheetName, "행수", len(kept), "상위", kept[:min(len(kept), backfillLogTopN)])
+		}
+		if err := w.client.BatchUpdateValues(ctx, map[string][][]interface{}{writeRange: values}); err != nil {
+			return summary, fmt.Errorf("섹터 백필(%s): %w", sheetName, err)
+		}
+		summary.updated++
 		slog.Info("섹터/산업 백필 완료", "sheet", sheetName, "rows", len(keys))
 	}
-	return nil
+	return summary, nil
 }

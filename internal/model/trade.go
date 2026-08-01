@@ -22,8 +22,12 @@ type Trade struct {
 	ProfitKRW    float64
 	ProfitRate   float64 // 퍼센트(14.68)
 	Account      string
-	Sector       string // 지수업종 대분류 (국내만; 해외 "")
-	Industry     string // 지수업종 중분류
+	// Sector: 국내는 KIS 업종 한글명, 해외는 FMP 영문 섹터. ETF·펀드(국내·해외 공통)는 "ETF" 고정.
+	// 미지원 통화·미커버 종목은 "".
+	Sector string
+	// Industry: 국내는 KIS 표준산업분류, 해외는 FMP 영문 산업. ETF·펀드(국내·해외 공통)는
+	// internal/etfclass taxonomy 카테고리. 미지원 통화·미커버 종목은 "".
+	Industry string
 }
 
 // DupKey: (date, trade_type, stock_name, quantity_str, price_str)
@@ -47,7 +51,8 @@ func (t Trade) ToDomesticRow() []any {
 		t.Quantity, t.Price, t.Amount, t.Fee, t.Profit, rate(t.ProfitRate)}
 }
 
-// ToForeignRow: 해외 17컬럼 (종목명 뒤 섹터/산업; 해외는 공란)
+// ToForeignRow: 해외 17컬럼 (종목명 뒤 섹터/산업 — FMP 로 채워지고, ETF·펀드는 국내와 같은
+// 표기로 통일된다. 미지원 통화·미커버 종목만 공란)
 func (t Trade) ToForeignRow() []any {
 	return []any{t.Date, t.TradeType, t.Currency, t.StockCode, t.StockName, t.Sector, t.Industry,
 		t.Quantity, t.Price, t.Amount, t.ExchangeRate, t.AmountKRW,

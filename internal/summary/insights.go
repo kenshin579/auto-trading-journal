@@ -24,19 +24,20 @@ type accountStockCount struct {
 // aggregateAccountStockCount 는 계좌별로 보유/거래 종목수를 세고 계좌명 사전식으로 정렬한다.
 // 종목 식별 키는 (종목코드, 종목명, 통화) — 해외처럼 코드가 비어도 이름으로 구분된다.
 func aggregateAccountStockCount(trades []model.Trade) []accountStockCount {
-	type stockKey struct{ code, name, currency string }
+	// 패키지 레벨 stockKey 와 달리 계좌를 뺀 3필드 — 계좌는 바깥 맵의 키다.
+	type acctStockKey struct{ code, name, currency string }
 	// 계좌 → 종목 → 순수량(매수 - 매도).
-	netQty := map[string]map[stockKey]float64{}
+	netQty := map[string]map[acctStockKey]float64{}
 	for _, t := range trades {
 		if t.TradeType != "매수" && t.TradeType != "매도" {
 			continue
 		}
 		byStock := netQty[t.Account]
 		if byStock == nil {
-			byStock = map[stockKey]float64{}
+			byStock = map[acctStockKey]float64{}
 			netQty[t.Account] = byStock
 		}
-		k := stockKey{t.StockCode, t.StockName, t.Currency}
+		k := acctStockKey{t.StockCode, t.StockName, t.Currency}
 		if t.TradeType == "매수" {
 			byStock[k] += t.Quantity
 		} else {

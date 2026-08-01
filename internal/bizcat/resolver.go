@@ -5,11 +5,13 @@ package bizcat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
 	"sync"
 
+	"github.com/kenshin579/auto-trading-journal/internal/etfclass"
 	kis "github.com/kenshin579/korea-investment-stock"
 	"github.com/kenshin579/korea-investment-stock/domestic"
 )
@@ -22,7 +24,9 @@ type entry struct {
 
 // etfCacheVersion 은 현재 ETF 산업 분류 스키마 버전. 이보다 낮은 ETF 캐시는 재조회한다.
 // v2: 코드분류(KRX명)+9999(OpenAI) 하이브리드. v3: 전부 OpenAI taxonomy 로 통일.
-const etfCacheVersion = 3
+// v4: 미국 시장대표를 S&P500/나스닥/미국주식(기타)로 세분(지수 비중 집계용).
+// v5: 분류 실패 시 폴백 값을 영구 캐시하던 버그 이전 항목 무효화 + 팩터·스타일 카테고리 추가.
+const etfCacheVersion = 5
 
 type Resolver struct {
 	mu          sync.Mutex
@@ -30,14 +34,14 @@ type Resolver struct {
 	failed      map[string]bool // 이번 실행에서 실패한 코드(negative cache, 비영구)
 	cachePath   string
 	fetch       func(code, name string) (sector, industry string, err error)
-	classifyETF func(name string) (string, error) // 9999 미분류 ETF 의 종목명 분류기(optional, nil 가능)
+	classifyETF etfclass.Classifier // ETF 종목명 → taxonomy 카테고리 분류기(optional, nil 가능)
 	dirty       bool
 }
 
-// EnableETFClassifier 는 9999 미분류 ETF 의 OpenAI 종목명 분류를 활성화한다.
+// EnableETFClassifier 는 ETF 종목명의 OpenAI 카테고리 분류를 활성화한다.
 // apiKey 가 비면 분류기는 nil 로 남아 지수명 폴백을 사용한다.
 func (r *Resolver) EnableETFClassifier(apiKey, model string) {
-	r.classifyETF = newETFClassifier(apiKey, model)
+	r.classifyETF = etfclass.New(apiKey, model)
 }
 
 func New(cachePath string) *Resolver {
@@ -81,7 +85,11 @@ func (r *Resolver) Resolve(code, name string) (string, string) {
 			r.failed = map[string]bool{}
 		}
 		r.failed[code] = true
-		slog.Warn("업종 조회 실패, 빈 값 처리", "code", code, "err", err)
+		// 클라이언트 자체가 없으면 종목마다 같은 경고가 반복된다(수백 줄).
+		// 생성 시점에 이미 한 번 경고했으므로 per-code 경고는 생략한다.
+		if !errors.Is(err, errNoKISClient) {
+			slog.Warn("업종 조회 실패, 빈 값 처리", "code", code, "err", err)
+		}
 		return cached.Sector, cached.Industry // 자가치유 재조회 실패 시 기존 캐시 보존
 	}
 	r.cache[code] = entry{Sector: sector, Industry: industry, Version: etfCacheVersion}
@@ -93,7 +101,7 @@ func (r *Resolver) Resolve(code, name string) (string, string) {
 // ETF 산업 분류 스키마가 바뀌면(구버전=지수명/빈값) 미스로 간주해 재조회한다.
 // 비-ETF 주식 캐시는 영향받지 않는다(전체 삭제 불필요).
 func needsRefresh(e entry) bool {
-	return e.Sector == "ETF" && e.Version < etfCacheVersion
+	return e.Sector == etfclass.SectorETF && e.Version < etfCacheVersion
 }
 
 func (r *Resolver) Save() {
@@ -127,11 +135,20 @@ func (r *Resolver) saveCache() error {
 // 초과가 나, 한 실행에 빠짐없이 채워지도록 3/s 로 더 낮춘다.
 const kisCallsPerSec = 3
 
-func kisFetch(classifyETF func(name string) (string, error)) func(code, name string) (string, string, error) {
+// errNoKISClient 는 KIS 클라이언트가 없어(키 미설정 등) 조회 자체가 불가능함을 뜻한다.
+var errNoKISClient = errors.New("bizcat: KIS 클라이언트 없음")
+
+// noClientFetch 는 KIS 클라이언트가 없을 때(키 미설정 등) 쓰는 fetch.
+// "성공 + 빈 값"이 아니라 에러다 — 빈 값을 성공으로 캐시하면 needsRefresh 가 그 항목을
+// 재조회 대상에서 빼버려(Sector != "ETF") 영구 고착되고, 그 빈 값이 캐시 파일과
+// 시트의 섹터/산업 열까지 덮어쓴다.
+func noClientFetch(code, name string) (string, string, error) { return "", "", errNoKISClient }
+
+func kisFetch(classifyETF etfclass.Classifier) func(code, name string) (string, string, error) {
 	client, err := kis.NewClientFromEnv(kis.WithRateLimit(kisCallsPerSec))
 	if err != nil {
 		slog.Warn("KIS 클라이언트 생성 실패, 업종 보강 비활성화", "err", err)
-		return func(code, name string) (string, string, error) { return "", "", nil }
+		return noClientFetch
 	}
 	return func(code, name string) (string, string, error) {
 		ctx := context.Background()
@@ -152,7 +169,10 @@ func kisFetch(classifyETF func(name string) (string, error)) func(code, name str
 				// (negative-cache 처리 → 다음 실행에 재시도).
 				return "", "", err
 			}
-			etfIndustry = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+			etfIndustry, err = resolveETFIndustry(etf.Output.EtfRprsBstpKorIsnm, name, classifyETF)
+			if err != nil {
+				return "", "", err
+			}
 		}
 		sector, industry := extractSectorIndustry(price, info, etfIndustry)
 		return sector, industry, nil
@@ -160,16 +180,25 @@ func kisFetch(classifyETF func(name string) (string, error)) func(code, name str
 }
 
 // resolveETFIndustry 는 ETF 산업 분류를 결정한다.
-//   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 OpenAI taxonomy 로 분류해 통일한다
-//     (예 "미국주식"/"반도체"/"방위·우주항공"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
-//   - 분류기 미설정/실패 → KIS 지수명(stripKRXPrefix) 폴백(회복력).
-func resolveETFIndustry(rprsName, fundName string, classify func(name string) (string, error)) string {
-	if classify != nil {
-		if cat, err := classify(fundName); err == nil && cat != "" {
-			return cat
-		}
+//   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 taxonomy 로 분류해 통일한다
+//     (예 "S&P500"/"반도체"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
+//   - 분류기 미설정(nil) → KIS 지수명(stripKRXPrefix) 폴백. 설정 상태이므로 에러가 아니다.
+//   - 분류기가 있는데 실패 → 에러를 전파한다. 폴백 값(taxonomy 밖 지수명)을 영구 캐시하면
+//     그 종목이 다음 실행에도 재조회되지 않아 대시보드에서 영구히 미분류로 남기 때문이다.
+func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier) (string, error) {
+	if classify == nil {
+		return stripKRXPrefix(rprsName), nil
 	}
-	return stripKRXPrefix(rprsName)
+	cat, err := classify(fundName)
+	if err != nil {
+		return "", err
+	}
+	// etfclass.New 로 만든 분류기는 Validate 를 거쳐 빈 값을 반환하지 않지만,
+	// classify 는 주입되는 함수라 그 보장을 가정하지 않는다.
+	if cat == "" {
+		return stripKRXPrefix(rprsName), nil
+	}
+	return cat, nil
 }
 
 // stripKRXPrefix 는 KRX 업종명의 "KRX " 접두사를 제거한다. 예 "KRX 반도체"→"반도체", "종합"→"종합".
@@ -194,7 +223,7 @@ func isETF(price *domestic.Price, info *domestic.StockInfo) bool {
 //     표준산업분류가 비는 ETF 의 산업 열을 추종 섹터로 채운다.
 func extractSectorIndustry(price *domestic.Price, info *domestic.StockInfo, etfIndustry string) (sector, industry string) {
 	if isETF(price, info) {
-		return "ETF", etfIndustry
+		return etfclass.SectorETF, etfIndustry
 	}
 	return price.BstpKorIsnm, info.StdIdstClsfCdName
 }
