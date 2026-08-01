@@ -2340,6 +2340,49 @@ git commit -m "feat(summary): 대시보드에 지수 vs 나머지 섹션과 파�
 **Files:**
 - Modify: `CLAUDE.md`
 
+- [ ] **Step 0: Y:Z 헬퍼 위치의 이중 진실 제거 (Task 8 리뷰 반영)**
+
+차트 헬퍼가 어느 열에 있는지가 **두 곳에 서로 다른 표현으로** 존재하고 둘을 잇는 것이 없다:
+- `internal/summary/index_weight.go` — `fmt.Sprintf("%s!Y%d:Z%d", ...)` (문자열)
+- `internal/summary/charts.go` — `buildPieChartSpec(..., 24, 25, ...)` (0-based 숫자)
+
+나중에 Z 열이 다른 용도로 필요해져 헬퍼를 옮기면 문자열만 바뀌고 숫자는 남아, **차트가 빈 열을
+가리킨 채 테스트는 전부 통과**한다. 같은 이유로 `TestIndexWeightPieChartSpec_UsesYZColumns` 는
+`buildPieChartSpec` 을 직접 호출해 리터럴을 검증하므로 `charts.go` 를 `25, 26` 으로 바꿔도 통과한다
+(동어반복의 아종).
+
+`internal/summary/charts.go` 의 기존 명명 상수(`chartColStart = 13 // N열`) 옆에 추가:
+
+```go
+// 지수 vs 나머지 파이 차트가 읽는 헬퍼 열(0-based). writeIndexWeight 가 Y:Z 에 쓴다 —
+// 옮길 때 index_weight.go 의 범위 문자열도 함께 바꿀 것.
+const (
+	indexWeightLabelCol = 24 // Y열
+	indexWeightValueCol = 25 // Z열
+)
+```
+
+`charts.go` 의 `buildPieChartSpec` 호출과 테스트가 이 상수를 쓰게 한다(테스트가 상수를 인자로
+넘기면 배선과 검증이 같은 값을 보게 된다). `index_weight.go` 의 범위 문자열 옆에도 한 줄:
+
+```go
+		// 열을 옮기면 charts.go 의 indexWeightLabelCol/ValueCol 도 함께 바꿀 것.
+```
+
+- [ ] **Step 0B: 보유원금이 근사값이라는 사실을 문서에 남기기**
+
+표에 **정확한 열(누적매수금액)과 근사 열(보유원금)이 나란히** 놓이는데 사용자는 구분할 수 없다.
+산식은 전 기간 가중평균단가를 잔여수량에 적용하므로 **모든 매수가 모든 매도보다 앞서면 정확**하고
+(적립 후 일부 정리 = 지수 ETF 의 전형적 패턴), 매도 후 다른 가격에 재매수한 종목에서만 어긋난다
+(오차 ±10% 수준). 물타기·회전이 잦은 테마/개별종목 쪽에 오차가 몰리는 구조다.
+
+`CLAUDE.md` 의 대시보드 설명에 한 줄 넣는다:
+
+```markdown
+- 보유원금 = 잔여수량 × 전 기간 평균매수단가(**시세가 아니다**). 매수가 매도보다 앞선 종목은
+  정확하고, 매도 후 재매수한 종목은 실제 취득원가와 차이가 날 수 있다.
+```
+
 - [ ] **Step 1: 해외 ETF 설명 정정**
 
 `CLAUDE.md` 의 `**internal/fmpcat** (resolver.go)` 항목에서 `not-found(fmp.ErrNotFound; 해외 ETF·미커버)는 빈 값으로 영구 캐시(재조회 안 함).` 로 시작하는 줄을 다음으로 교체:
@@ -2441,7 +2484,9 @@ git commit -m "docs: 해외 ETF 판별 방식 정정 및 지수 vs 나머지 섹
     (지수/나머지 그룹은 불변, 버킷 라벨만 틀림)
   - `fmpcat` 에는 레이트리밋이 없다. 105건 연속 호출 중 429 를 맞으면 그 종목은 negative-cache 로
     빠지고 **다음 실행에 재시도**된다 — 한 번에 안 끝나면 백필을 한 번 더 돌릴 것
-- [ ] `make run` — 대시보드에 새 섹션 반영
+- [ ] **위 검수를 통과한 뒤에만** `make run 2>&1 | tee /tmp/run.log` — 대시보드에 새 섹션 반영.
+      분류가 틀린 채로 대시보드를 만들면 사용자가 그 숫자를 믿고 배분을 결정하게 된다 —
+      이 기능 전체가 막으려던 실패 모드가 바로 그것이다
 - [ ] 시트에서 확인: `미분류` 줄이 보이면 그 금액만큼 분류가 빠진 것 — 로그의 경고로 원인 확인
 
 ## PR
