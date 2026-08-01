@@ -286,8 +286,12 @@ func aggregateIndexWeight(trades []model.Trade) ([]indexWeightRow, indexWeightDi
 // diag 는 미분류 행 라벨에 종목수를 싣는 데만 쓴다 — 로그는 휘발성이라 시트에서
 // 미분류를 본 시점엔 이미 사라졌을 수 있어, 시트만으로 규모를 알 수 있어야 한다.
 func indexWeightValues(rows []indexWeightRow, diag indexWeightDiag) ([][]any, []int) {
+	// 안내행: 보유원금은 취득원가(잔여수량 × 평균매수단가)라 시세가 아니다. 지수 포지션이
+	// 더 올랐다면 지수 버킷의 현재 시장 비중을 체계적으로 과소평가하므로, 저장소 문서가 아니라
+	// 표 안에서 알 수 있어야 한다(시트만 보고 배분을 정하는 사람이 과다 배분하지 않도록).
 	values := [][]any{
 		{"[지수 vs 나머지 투자]", "", "", "", ""},
+		{"※ 보유원금 = 잔여수량 × 평균매수단가 (현재 시세 아님)", "", "", "", ""},
 		{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"},
 	}
 	var groupOffsets []int
@@ -370,11 +374,11 @@ func (g *Generator) collectIndexWeightFormats(startRow, endRow int, groupOffsets
 		{Col: 3, Pattern: "0.00%", Type: "PERCENT"},
 		{Col: 5, Pattern: "0.00%", Type: "PERCENT"},
 	}
-	// 데이터는 startRow+2 부터(startRow=제목행, startRow+1=컬럼 헤더).
+	// 데이터는 startRow+3 부터(startRow=제목행, +1=안내행, +2=컬럼 헤더).
 	// 거래가 없으면 데이터 행 자체가 없어 포맷을 걸 곳이 없다.
-	if endRow >= startRow+2 {
-		g.pendingRequests = append(g.pendingRequests, build(sid, krw, startRow+2, endRow)...)
-		g.pendingRequests = append(g.pendingRequests, build(sid, pct, startRow+2, endRow)...)
+	if endRow >= startRow+3 {
+		g.pendingRequests = append(g.pendingRequests, build(sid, krw, startRow+3, endRow)...)
+		g.pendingRequests = append(g.pendingRequests, build(sid, pct, startRow+3, endRow)...)
 	}
 
 	headerColor := &gsheets.Color{Red: 0.24, Green: 0.52, Blue: 0.78, ForceSendFields: []string{"Red", "Green", "Blue"}}

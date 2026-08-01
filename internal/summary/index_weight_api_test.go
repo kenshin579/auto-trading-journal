@@ -94,12 +94,12 @@ func TestWriteIndexWeight_RangesAndReturn(t *testing.T) {
 	next, err := g.writeIndexWeight(context.Background(), indexWeightFixture(), startRow)
 	require.NoError(t, err)
 
-	// 표: 제목행 + 컬럼헤더 + 버킷/그룹 10줄 = 12행 → 5..16
+	// 표: 제목행 + 안내행 + 컬럼헤더 + 버킷/그룹 10줄 = 13행 → 5..17
 	// 헬퍼: 설명헤더 + 그룹 소계 2줄 = 3행 → 5..7
-	assert.Equal(t, []string{"대시보드!A5:E16", "대시보드!Y5:Z7"}, f.recorded(),
+	assert.Equal(t, []string{"대시보드!A5:E17", "대시보드!Y5:Z7"}, f.recorded(),
 		"UpdateCells 2회 — 표(A:E)와 파이 헬퍼(Y:Z)가 같은 행에서 시작한다")
 
-	assert.Equal(t, 17, next, "반환값 = startRow + len(values) (다음 섹션의 시작 행)")
+	assert.Equal(t, 18, next, "반환값 = startRow + len(values) (다음 섹션의 시작 행)")
 
 	// 차트는 헬퍼의 설명 헤더(5행)를 빼고 6..7 을 소스로 잡는다.
 	assert.Equal(t, rowRange{start: startRow + 1, end: 7, ok: true}, g.indexWeightPie)
@@ -111,7 +111,7 @@ func TestWriteIndexWeight_ValueRowCountMatchesRange(t *testing.T) {
 	rows, diag := aggregateIndexWeight(trades)
 	values, _ := indexWeightValues(rows, diag)
 
-	assert.Len(t, values, 12, "제목행 + 컬럼헤더 + 버킷/그룹 10줄")
+	assert.Len(t, values, 13, "제목행 + 안내행 + 컬럼헤더 + 버킷/그룹 10줄")
 	assert.Len(t, indexWeightPieHelper(rows), 3, "설명헤더 + 그룹 소계 2줄")
 }
 
@@ -123,9 +123,9 @@ func TestWriteIndexWeight_NoTradesSkipsHelperWrite(t *testing.T) {
 	next, err := g.writeIndexWeight(context.Background(), nil, 5)
 	require.NoError(t, err)
 
-	// 제목행 + 컬럼헤더만 → 5..6
-	assert.Equal(t, []string{"대시보드!A5:E6"}, f.recorded(), "Y:Z 쓰기는 생략된다")
-	assert.Equal(t, 7, next)
+	// 제목행 + 안내행 + 컬럼헤더만 → 5..7
+	assert.Equal(t, []string{"대시보드!A5:E7"}, f.recorded(), "Y:Z 쓰기는 생략된다")
+	assert.Equal(t, 8, next)
 	assert.False(t, g.indexWeightPie.ok)
 
 	// 데이터 행이 없으니 숫자 포맷도 걸지 않는다(제목/헤더 행에 통화·백분율 포맷 금지).
@@ -151,7 +151,7 @@ func TestWriteIndexWeight_AllSoldSkipsPieChart(t *testing.T) {
 	assert.False(t, g.indexWeightPie.ok)
 }
 
-// 숫자 포맷은 데이터 행(startRow+2)부터 — 제목행/컬럼헤더에는 걸지 않는다.
+// 숫자 포맷은 데이터 행(startRow+3)부터 — 제목행/안내행/컬럼헤더에는 걸지 않는다.
 func TestWriteIndexWeight_NumberFormatsStartAtDataRow(t *testing.T) {
 	f := newFakeValues()
 	g := newFakeGenerator(t, f)
@@ -174,8 +174,8 @@ func TestWriteIndexWeight_NumberFormatsStartAtDataRow(t *testing.T) {
 	}
 	require.Len(t, tableRows, 4, "B·D 원화 + C·E 백분율")
 	for _, sr := range tableRows {
-		// GridRange 는 0-based 이므로 1-based startRow+2 는 startRow+1.
-		assert.Equal(t, int64(startRow+1), sr, "데이터 행(1-based %d)부터 포맷", startRow+2)
+		// GridRange 는 0-based 이므로 1-based startRow+3 은 startRow+2.
+		assert.Equal(t, int64(startRow+2), sr, "데이터 행(1-based %d)부터 포맷", startRow+3)
 	}
 }
 
@@ -205,7 +205,7 @@ func TestWriteIndexWeight_PropagatesHelperWriteError(t *testing.T) {
 	require.Error(t, err)
 	assert.Zero(t, next)
 	assert.False(t, g.indexWeightPie.ok)
-	assert.Equal(t, []string{"대시보드!A5:E16", "대시보드!Y5:Z7"}, f.recorded())
+	assert.Equal(t, []string{"대시보드!A5:E17", "대시보드!Y5:Z7"}, f.recorded())
 }
 
 func countNumberFormatRequests(g *Generator) int {

@@ -270,7 +270,7 @@ func TestDiagNames_IncludesAmount(t *testing.T) {
 	assert.Equal(t, []string{"미분류거액(₩1,234,567)", "손실(₩-1,000)"}, diagNames(list))
 }
 
-// 셀 값 생성: 제목행 + 컬럼헤더 + (그룹행은 "▸", 버킷행은 두 칸 들여쓰기).
+// 셀 값 생성: 제목행 + 안내행 + 컬럼헤더 + (그룹행은 "▸", 버킷행은 두 칸 들여쓰기).
 func TestIndexWeightValues(t *testing.T) {
 	rows := []indexWeightRow{
 		{group: groupIndex, bucket: "", buy: 100, held: 50, buyPct: 0.5, heldPct: 0.5},
@@ -280,15 +280,19 @@ func TestIndexWeightValues(t *testing.T) {
 	values, groupOffsets := indexWeightValues(rows, indexWeightDiag{})
 
 	assert.Equal(t, "[지수 vs 나머지 투자]", values[0][0])
-	assert.Equal(t, []any{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"}, values[1])
-	assert.Equal(t, "▸ 지수", values[2][0])
-	assert.Equal(t, "  S&P500", values[3][0])
-	assert.Equal(t, "▸ 나머지", values[4][0])
-	assert.Equal(t, 100.0, values[2][1])
-	assert.Equal(t, 0.5, values[2][2])
+	// 보유원금은 취득원가라 시세가 아니다. 시트만 보는 사람이 지수 비중을 과소평가하지 않도록
+	// 저장소 문서가 아니라 표 안에 안내를 둔다.
+	assert.Contains(t, values[1][0], "보유원금 = 잔여수량 × 평균매수단가")
+	assert.Contains(t, values[1][0], "현재 시세 아님")
+	assert.Equal(t, []any{"구분", "누적매수금액", "비중(%)", "보유원금", "비중(%)"}, values[2])
+	assert.Equal(t, "▸ 지수", values[3][0])
+	assert.Equal(t, "  S&P500", values[4][0])
+	assert.Equal(t, "▸ 나머지", values[5][0])
+	assert.Equal(t, 100.0, values[3][1])
+	assert.Equal(t, 0.5, values[3][2])
 
 	// 그룹 행 오프셋(0-based, 제목행 기준) — 배경색 적용에 쓰인다
-	assert.Equal(t, []int{2, 4}, groupOffsets)
+	assert.Equal(t, []int{3, 5}, groupOffsets)
 }
 
 // 미분류 그룹 행에는 종목수를 실어 로그 없이 시트만으로 규모를 알 수 있게 한다.
@@ -302,12 +306,12 @@ func TestIndexWeightValues_UnknownLabelCarriesStockCount(t *testing.T) {
 	}}
 
 	values, _ := indexWeightValues(rows, diag)
-	assert.Equal(t, "▸ 지수", values[2][0], "미분류 아닌 그룹은 종목수를 붙이지 않는다")
-	assert.Equal(t, "▸ 미분류 (3종목)", values[3][0])
+	assert.Equal(t, "▸ 지수", values[3][0], "미분류 아닌 그룹은 종목수를 붙이지 않는다")
+	assert.Equal(t, "▸ 미분류 (3종목)", values[4][0])
 
 	// 진단이 비면 종목수 없이 기존 라벨.
 	plain, _ := indexWeightValues(rows, indexWeightDiag{})
-	assert.Equal(t, "▸ 미분류", plain[3][0])
+	assert.Equal(t, "▸ 미분류", plain[4][0])
 }
 
 // 파이 차트가 Y:Z(indexWeightLabelCol/ValueCol)를 소스로 잡는지 확인한다.
