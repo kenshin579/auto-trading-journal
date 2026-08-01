@@ -1426,6 +1426,111 @@ git commit -m "feat(summary): 지수/나머지 버킷 매핑 함수 추가"
 
 ---
 
+### Task 5B: 계약 하드닝 (매직 스트링 · 역방향 검증 · 입력 정규화)
+
+Task 5 리뷰에서 드러난 이음매를 조인다. 전부 값싼 변경이고 정확성 개선이다.
+
+**왜:** `"ETF"` 라는 섹터 값이 세 패키지 5곳에 리터럴로 흩어져 있다.
+
+| 위치 | 역할 |
+|---|---|
+| `internal/bizcat/resolver.go` `extractSectorIndustry` | 쓰기 |
+| `internal/fmpcat/resolver.go` `Resolve` | 쓰기 |
+| `internal/bizcat/resolver.go` `needsRefresh` | 판별 |
+| `internal/summary/index_weight.go` `bucketOf` | 읽기(버킷 분기) |
+| `internal/summary/country_sector.go` `sectorKey` | 읽기 |
+
+한쪽만 바뀌면 **모든 ETF 가 개별종목으로 떨어져 지수 행이 0 이 되는데, summary 테스트도 `"ETF"` 를
+하드코딩하므로 함께 틀려 아무도 못 잡는다.** 이 기능에서 가장 취약한 이음매인데 방어가 없다.
+
+**Files:**
+- Modify: `internal/etfclass/classifier.go` (상수 추가)
+- Modify: `internal/bizcat/resolver.go`, `internal/fmpcat/resolver.go`
+- Modify: `internal/summary/index_weight.go`, `internal/summary/country_sector.go`
+- Modify: `internal/summary/index_weight_test.go`
+
+- [ ] **Step 1: 공유 상수 도입**
+
+`internal/etfclass/classifier.go` 에 추가:
+
+```go
+// SectorETF 는 ETF/펀드로 판별된 종목의 섹터 값. bizcat·fmpcat 이 쓰고 summary 가 읽는
+// 패키지 간 계약이라 리터럴 대신 이 상수를 쓴다(한쪽만 바뀌면 지수 집계가 조용히 0 이 된다).
+const SectorETF = "ETF"
+```
+
+위 5곳의 리터럴 `"ETF"` 를 `etfclass.SectorETF` 로 교체한다. `internal/summary` 두 파일은
+`etfclass` import 가 새로 필요하다(순환 없음 — `etfclass` 는 go-openai 만 의존한다).
+**테스트 파일의 `"ETF"` 리터럴은 그대로 둔다** — 테스트는 상수가 아니라 실제 값에 대해
+검증해야 상수가 바뀌는 사고를 잡는다.
+
+- [ ] **Step 2: taxonomy 동기화를 양방향으로**
+
+`TestETFBuckets_CoversTaxonomy` 는 `Categories → etfBuckets` 만 본다. taxonomy 에서 빠진
+카테고리가 맵에 유령으로 남는 것은 못 잡는다(실제로 Task 2 에서 `"미국주식"` 이 제거됐다).
+`internal/summary/index_weight_test.go` 의 해당 테스트에 추가:
+
+```go
+	// 역방향 — taxonomy 에서 사라진 카테고리가 맵에 유령으로 남지 않도록.
+	for k := range etfBuckets {
+		assert.Contains(t, etfclass.Categories, k, "taxonomy 에 없는 키: %s", k)
+	}
+```
+
+- [ ] **Step 3: `bucketOf` 입력 정규화**
+
+여기 들어오는 `(섹터, 산업)` 은 캐시가 아니라 **시트를 왕복해서** 온다(`ReadAllTrades`).
+`etfclass.Validate` 의 정규화는 분류 시점에만 적용되므로, 사용자가 셀을 손으로 고치거나
+공백이 붙으면 맵 미스 → 미분류가 된다. `bucketOf` 첫머리에서 두 인자를 `strings.TrimSpace` 한다.
+
+테스트도 추가:
+
+```go
+// 시트에서 읽은 값이라 사용자가 손으로 고쳐 공백이 붙을 수 있다.
+func TestBucketOf_TrimsInput(t *testing.T) {
+	g, b := bucketOf(" ETF ", " S&P500 ")
+	assert.Equal(t, groupIndex, g)
+	assert.Equal(t, bucketSP500, b)
+}
+```
+
+- [ ] **Step 4: 매핑 값을 named struct 로**
+
+`map[string][2]string` 은 이 저장소에서 유일한 패턴이다(`summary` 의 다른 자료구조는 전부
+named struct: `countrySectorRow`, `monthlyRow`, `stockRow` …). Task 6 의 `indexWeightLayout` 도
+`struct{ group, bucket string }` 이라 같은 쌍에 두 표현이 공존하게 된다. 통일한다:
+
+```go
+// bucketAssignment 는 ETF 카테고리가 표에서 어느 그룹·버킷 줄로 가는지.
+type bucketAssignment struct{ group, bucket string }
+
+var etfBuckets = map[string]bucketAssignment{ ... }  // 리터럴은 {groupIndex, bucketSP500} 그대로
+```
+
+`bucketOf` 의 반환부를 `return gb.group, gb.bucket` 으로 바꾼다.
+
+- [ ] **Step 5: 낡은 주석 정리**
+
+`internal/summary/country_sector.go` 의 `sectorKey` doc 예시가 제거된 카테고리를 가리킨다
+(`"ETF·미국주식"`). `"ETF·S&P500"` 으로 바꾼다.
+
+`internal/summary/index_weight.go` 의 `bucketUnknown` 상수 옆에 한 줄:
+
+```go
+	bucketUnknown    = "미분류" // 집계 키로만 쓰인다 — 표에는 미분류 그룹 행 하나로만 나온다
+```
+
+- [ ] **Step 6: 테스트 + 커밋**
+
+Run: `make test && go vet ./...`
+
+```bash
+git add internal/etfclass internal/bizcat internal/fmpcat internal/summary
+git commit -m "refactor: ETF 섹터 값을 공유 상수로 묶고 버킷 매핑 계약 하드닝"
+```
+
+---
+
 ### Task 6: `aggregateIndexWeight` — 누적 매수금액 + 보유 원금 집계
 
 **Files:**
