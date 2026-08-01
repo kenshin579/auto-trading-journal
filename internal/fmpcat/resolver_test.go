@@ -27,9 +27,9 @@ func TestExchangeSuffix(t *testing.T) {
 // 미지원 통화는 FMP 호출 없이 공란 반환.
 func TestResolve_UnsupportedCurrencySkipsFetch(t *testing.T) {
 	calls := 0
-	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (string, string, error) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
 		calls++
-		return "X", "Y", nil
+		return profile{Sector: "X", Industry: "Y"}, nil
 	}}
 	s, i := r.Resolve("BABA", "HKD")
 	assert.Equal(t, "", s)
@@ -48,10 +48,10 @@ func TestResolve_EmptyTickerReturnsBlank(t *testing.T) {
 func TestResolve_USMissCachesThenHit(t *testing.T) {
 	calls := 0
 	var gotSymbol string
-	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (string, string, error) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
 		calls++
 		gotSymbol = symbol
-		return "Technology", "Consumer Electronics", nil
+		return profile{Sector: "Technology", Industry: "Consumer Electronics"}, nil
 	}}
 	s, i := r.Resolve("AAPL", "USD")
 	assert.Equal(t, "Technology", s)
@@ -64,9 +64,9 @@ func TestResolve_USMissCachesThenHit(t *testing.T) {
 // JPY 는 .T 접미사를 붙여 조회.
 func TestResolve_JPYAppendsSuffix(t *testing.T) {
 	var gotSymbol string
-	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (string, string, error) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
 		gotSymbol = symbol
-		return "Consumer Cyclical", "Auto - Manufacturers", nil
+		return profile{Sector: "Consumer Cyclical", Industry: "Auto - Manufacturers"}, nil
 	}}
 	s, i := r.Resolve("7203", "JPY")
 	assert.Equal(t, "7203.T", gotSymbol, "JPY 는 .T 접미사")
@@ -74,26 +74,27 @@ func TestResolve_JPYAppendsSuffix(t *testing.T) {
 	assert.Equal(t, "Auto - Manufacturers", i)
 }
 
-// not-found(fetch 가 빈 값+nil 반환)는 빈 값으로 캐시되어 재조회하지 않는다(해외 ETF 등).
+// not-found(fetch 가 zero profile+nil 반환)는 같은 실행 안에서는 재조회하지 않는다.
+// 파일에는 남지 않으므로(saveCache 가 빈 항목 제외) 다음 실행에 1회 재시도된다.
 func TestResolve_NotFoundCachedEmpty(t *testing.T) {
 	calls := 0
-	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (string, string, error) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
 		calls++
-		return "", "", nil
+		return profile{}, nil
 	}}
 	s, i := r.Resolve("1321", "JPY")
 	assert.Equal(t, "", s)
 	assert.Equal(t, "", i)
 	r.Resolve("1321", "JPY")
-	assert.Equal(t, 1, calls, "빈 결과도 캐시되어 재조회 안 함")
+	assert.Equal(t, 1, calls, "빈 결과도 같은 실행 내 재조회 안 함")
 }
 
 // 일시적 오류는 negative-cache(이번 실행만) → 같은 실행 내 재조회 안 함.
 func TestResolve_ErrorNegativeCache(t *testing.T) {
 	calls := 0
-	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (string, string, error) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
 		calls++
-		return "", "", assert.AnError
+		return profile{}, assert.AnError
 	}}
 	s, i := r.Resolve("AAPL", "USD")
 	assert.Equal(t, "", s)
@@ -128,4 +129,100 @@ func TestCacheSaveLoad_Roundtrip(t *testing.T) {
 	s, ok := r2.cacheLookup("AAPL")
 	assert.True(t, ok)
 	assert.Equal(t, "Technology", s)
+}
+
+// ETF 는 국내(bizcat)와 같은 표기로 통일한다 — 섹터="ETF", 산업=taxonomy 카테고리.
+func TestResolve_ETFUsesClassifier(t *testing.T) {
+	var gotName string
+	r := &Resolver{
+		cache: map[string]entry{},
+		fetch: func(symbol string) (profile, error) {
+			return profile{
+				Sector:   "Financial Services",
+				Industry: "Asset Management - Income",
+				Name:     "Schwab US Dividend Equity ETF",
+				IsETF:    true,
+			}, nil
+		},
+		classifyETF: func(name string) (string, error) {
+			gotName = name
+			return "배당", nil
+		},
+	}
+	s, i := r.Resolve("SCHD", "USD")
+	assert.Equal(t, "ETF", s)
+	assert.Equal(t, "배당", i)
+	assert.Equal(t, "Schwab US Dividend Equity ETF", gotName, "회사명으로 분류")
+	assert.True(t, r.cache["SCHD"].IsETF)
+}
+
+// IsFund 도 ETF 로 취급한다(뮤추얼펀드형 상품).
+func TestResolve_FundTreatedAsETF(t *testing.T) {
+	r := &Resolver{
+		cache: map[string]entry{},
+		fetch: func(symbol string) (profile, error) {
+			return profile{Sector: "Financial Services", Industry: "Asset Management", Name: "Some Fund", IsFund: true}, nil
+		},
+		classifyETF: func(name string) (string, error) { return "글로벌주식", nil },
+	}
+	s, i := r.Resolve("XXXX", "USD")
+	assert.Equal(t, "ETF", s)
+	assert.Equal(t, "글로벌주식", i)
+}
+
+// 분류기가 없으면(키 미설정) FMP 원본 산업으로 폴백한다(섹터는 ETF 유지).
+func TestResolve_ETFWithoutClassifierFallsBack(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
+		return profile{Sector: "Financial Services", Industry: "Asset Management - Bonds", Name: "iShares 20+ Year Treasury Bond ETF", IsETF: true}, nil
+	}}
+	s, i := r.Resolve("TLT", "USD")
+	assert.Equal(t, "ETF", s)
+	assert.Equal(t, "Asset Management - Bonds", i, "분류기 nil → FMP 산업 폴백")
+}
+
+// 분류기가 있는데 실패하면 캐시하지 않는다 — taxonomy 밖 값을 영구 캐시하면
+// 그 종목이 다음 실행에도 재조회되지 않아 대시보드에서 영구히 미분류로 남는다.
+func TestResolve_ClassifyFailureDoesNotPoisonCache(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
+		return profile{Sector: "Financial Services", Industry: "Asset Management - Bonds", Name: "iShares 20+ Year Treasury Bond ETF", IsETF: true}, nil
+	}, classifyETF: func(name string) (string, error) { return "", assert.AnError }}
+	s, i := r.Resolve("TLT", "USD")
+	assert.Equal(t, "", s)
+	assert.Equal(t, "", i)
+	assert.NotContains(t, r.cache, "TLT", "실패는 캐시에 남지 않는다")
+	assert.True(t, r.failed["TLT"], "같은 실행 내 재조회는 막는다")
+}
+
+// 일반 종목(BDC·자산운용사 포함)은 기존대로 FMP 섹터/산업을 쓴다.
+func TestResolve_NonETFKeepsFMPValues(t *testing.T) {
+	r := &Resolver{cache: map[string]entry{}, fetch: func(symbol string) (profile, error) {
+		return profile{Sector: "Financial Services", Industry: "Asset Management", Name: "Main Street Capital Corporation"}, nil
+	}}
+	s, i := r.Resolve("MAIN", "USD")
+	assert.Equal(t, "Financial Services", s, "BDC 는 ETF 가 아니다")
+	assert.Equal(t, "Asset Management", i)
+}
+
+// 버전 없는 구캐시(isEtf 정보 없음)는 1회 재조회된다.
+func TestNeedsRefresh_OldCacheVersion(t *testing.T) {
+	assert.True(t, needsRefresh(entry{Sector: "Financial Services", Industry: "Asset Management"}), "v0 재조회")
+	assert.False(t, needsRefresh(entry{Sector: "Technology", Industry: "Semiconductors", Version: cacheVersion}))
+}
+
+func TestResolve_StaleCacheRefetches(t *testing.T) {
+	calls := 0
+	r := &Resolver{
+		cache: map[string]entry{"SCHD": {Sector: "Financial Services", Industry: "Asset Management - Income"}},
+		fetch: func(symbol string) (profile, error) {
+			calls++
+			return profile{Sector: "Financial Services", Industry: "Asset Management - Income", Name: "Schwab US Dividend Equity ETF", IsETF: true}, nil
+		},
+		classifyETF: func(name string) (string, error) { return "배당", nil },
+	}
+	s, i := r.Resolve("SCHD", "USD")
+	assert.Equal(t, 1, calls, "구버전 캐시는 재조회")
+	assert.Equal(t, "ETF", s)
+	assert.Equal(t, "배당", i)
+	r.Resolve("SCHD", "USD")
+	assert.Equal(t, 1, calls, "갱신 후엔 캐시 히트")
 }

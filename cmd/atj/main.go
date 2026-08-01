@@ -187,6 +187,9 @@ func newProcessor(ctx context.Context, dryRun bool, cfg *config.Config) (*proces
 
 	// 해외 종목 섹터/산업은 FMP 로 채운다(FMP_API_KEY 없으면 no-op).
 	fc := fmpcat.New("config/fmpcat_cache.json")
+	// 해외 ETF 는 종목명 기반 OpenAI 분류로 국내와 같은 카테고리 체계를 쓴다.
+	// 키 없으면 no-op(FMP 원본 산업 폴백).
+	fc.EnableETFClassifier(cfg.OpenAIAPIKey(), cfg.OpenAI.Model)
 
 	return &processor{
 		dryRun:      dryRun,
