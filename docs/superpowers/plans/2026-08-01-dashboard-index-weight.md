@@ -1176,10 +1176,25 @@ func fmpFetch() func(string) (profile, error) {
 Run: `go test ./internal/fmpcat/ -v`
 Expected: PASS (기존 7개 + 신규 6개)
 
+- [ ] **Step 4B: `cmd/atj/main.go` 에 분류기 배선 (구 Task 4 흡수분)**
+
+**같은 커밋에 넣어야 한다.** 배선 없이 한 번이라도 실행하면 해외 ETF 가
+`entry{Sector:"ETF", Industry:"Asset Management*", Version:2}` 로 저장되고 `needsRefresh` 가
+false 라 영구 고착되는데, `config/fmpcat_cache.json` 이 git 추적 파일이라 그 오염이 커밋되어
+배포된다. `fc := fmpcat.New("config/fmpcat_cache.json")` 바로 다음에 추가:
+
+```go
+	// 해외 ETF 는 종목명 기반 OpenAI 분류로 국내와 같은 카테고리 체계를 쓴다.
+	// 키 없으면 no-op(FMP 원본 산업 폴백).
+	fc.EnableETFClassifier(cfg.OpenAIAPIKey(), cfg.OpenAI.Model)
+```
+
+Run: `make build && make test`
+
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add internal/fmpcat
+git add internal/fmpcat cmd/atj/main.go
 git commit -m "feat(fmpcat): IsEtf/IsFund 로 해외 ETF 판별하고 국내와 같은 카테고리 체계로 통일"
 ```
 
@@ -1979,6 +1994,18 @@ git commit -m "feat(summary): 대시보드에 지수 vs 나머지 섹션과 파�
 - `index_weight.go`: ETF 카테고리를 지수(S&P500/나스닥/한국/기타지역)와 나머지(개별종목/테마·섹터/
   배당·전략/채권·금)로 매핑해 **누적 매수금액**과 **보유 원금**(잔여수량×평균매수단가) 두 기준으로
   집계. 차트 데이터는 `Y:Z`(초기화 범위 `A1:Z` 안이어야 한다)
+```
+
+- [ ] **Step 2B: `fmpcat` 에 레이트리밋이 없는 이유를 코드에 남기기**
+
+`bizcat` 은 `kisCallsPerSec = 3` 으로 페이싱하는데 `fmpcat` 은 하지 않아 "여기만 왜 없지"라는
+질문이 반복될 수 있다. 이유는 게으름이 아니라 제약 조건의 종류가 달라서다 — KIS 는 **초당** 제한을
+강제하고 `EGW00201` 로 즉시 거절하지만, FMP 무료 티어의 구속 조건은 **일 250건**이라 느리게
+호출해도 총량이 같다. `internal/fmpcat/resolver.go` 패키지 주석에 한 줄 추가:
+
+```go
+// bizcat 과 달리 호출 페이싱을 하지 않는다 — KIS 는 초당 제한(EGW00201)을 강제하지만
+// FMP 무료 티어의 구속 조건은 일간 총량이라 페이싱으로 해결되지 않는다.
 ```
 
 - [ ] **Step 3B: 캐시 재조회 한계를 Troubleshooting 에 명시**
