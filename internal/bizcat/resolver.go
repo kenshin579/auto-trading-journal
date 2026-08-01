@@ -163,7 +163,7 @@ func kisFetch(classifyETF etfclass.Classifier) func(code, name string) (string, 
 
 // resolveETFIndustry 는 ETF 산업 분류를 결정한다.
 //   - 분류기가 있으면 코드 분류 여부와 무관하게 펀드 종목명을 OpenAI taxonomy 로 분류해 통일한다
-//     (예 "미국주식"/"반도체"/"방위·우주항공"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
+//     (예 "S&P500"/"나스닥"/"반도체"/"방위·우주항공"/"원자재"). 코드 분류된 verbose 한 지수명도 정규화됨.
 //   - 분류기 미설정/실패 → KIS 지수명(stripKRXPrefix) 폴백(회복력).
 func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier) string {
 	if classify != nil {
