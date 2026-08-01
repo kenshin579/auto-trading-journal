@@ -166,6 +166,8 @@ type fakeBackfillSheets struct {
 	valuesByRange map[string][][]interface{}
 	// failRange: 이 범위 조회는 400 을 돌려준다.
 	failRange string
+	// sheetNames: 비면 기본 시트 1개("미래에셋증권_국내계좌")만 있는 것으로 본다.
+	sheetNames []string
 
 	readRanges []string
 	writes     []*gsheets.ValueRange
@@ -196,9 +198,16 @@ func (f *fakeBackfillSheets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 시트 목록
-	ss := &gsheets.Spreadsheet{Sheets: []*gsheets.Sheet{
-		{Properties: &gsheets.SheetProperties{Title: "미래에셋증권_국내계좌", SheetId: 0}},
-	}}
+	names := f.sheetNames
+	if len(names) == 0 {
+		names = []string{"미래에셋증권_국내계좌"}
+	}
+	ss := &gsheets.Spreadsheet{}
+	for i, n := range names {
+		ss.Sheets = append(ss.Sheets, &gsheets.Sheet{
+			Properties: &gsheets.SheetProperties{Title: n, SheetId: int64(i)},
+		})
+	}
 	b, _ := json.Marshal(ss)
 	_, _ = w.Write(b)
 }
@@ -273,4 +282,60 @@ func TestBackfillSectors_ExistingReadFailureSkipsSheet(t *testing.T) {
 	blank := func(a, b string) (string, string) { return "", "" }
 	require.NoError(t, w.BackfillSectors(context.Background(), blank, blank), "스킵이지 에러가 아니다")
 	assert.Empty(t, f.writes, "읽기 실패한 시트는 쓰지 않는다")
+}
+
+// 요약 레벨 판정: 정상만 Info, 스킵·유지 행·에러는 Error 로 간다.
+func TestBackfillSummary_Incomplete(t *testing.T) {
+	assert.False(t, backfillSummary{updated: 3}.incomplete(nil), "전부 갱신 = 정상")
+	assert.True(t, backfillSummary{updated: 2, skipped: 1}.incomplete(nil), "스킵 시트")
+	assert.True(t, backfillSummary{updated: 3, keptRows: 4}.incomplete(nil), "기존 값 유지 행")
+	assert.True(t, backfillSummary{updated: 3}.incomplete(assert.AnError), "중간에 에러로 멈춤")
+}
+
+// 요약이 갱신/스킵/유지를 실제로 센다 — 한 시트는 갱신(유지 2행), 한 시트는 기존 값
+// 조회 실패로 스킵, 한 시트는 구포맷(정상 스킵이라 세지 않는다).
+func TestBackfillSectors_SummaryCounts(t *testing.T) {
+	f := &fakeBackfillSheets{
+		sheetNames: []string{"미래에셋증권_국내계좌", "한국투자증권_국내계좌", "구포맷시트"},
+		valuesByRange: map[string][][]interface{}{
+			"미래에셋증권_국내계좌!A1:Q1": domesticHeaderRow(),
+			"미래에셋증권_국내계좌!C2:D":  {{"005930", "삼성전자"}, {"379780", "RISE 미국S&P500"}},
+			"미래에셋증권_국내계좌!E2:F3": {{"전기·전자", "반도체 제조업"}, {"ETF", "S&P500"}},
+
+			"한국투자증권_국내계좌!A1:Q1": domesticHeaderRow(),
+			"한국투자증권_국내계좌!C2:D":  {{"000660", "SK하이닉스"}},
+
+			"구포맷시트!A1:Q1": {{"일자", "구분", "종목명"}}, // 헤더 불일치
+			"구포맷시트!C2:D":  {{"x", "y"}},
+		},
+		failRange: "한국투자증권_국내계좌!E2:F2", // 기존 값 조회 실패 → 스킵
+	}
+	w := newBackfillWriter(t, f)
+
+	blank := func(a, b string) (string, string) { return "", "" } // 키 미설정
+	summary, err := w.backfillSectors(context.Background(), blank, blank)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, summary.updated, "쓰기까지 끝난 시트")
+	assert.Equal(t, 1, summary.skipped, "조회 실패 스킵만 센다(구포맷 스킵은 정상)")
+	assert.Equal(t, 2, summary.keptRows, "기존 값을 유지한 행 합계")
+	assert.True(t, summary.incomplete(err), "이 상태는 Error 로 남는다")
+	assert.Len(t, f.writes, 1, "스킵한 시트는 쓰지 않는다")
+}
+
+// 전부 갱신되면 요약은 정상(Info) 판정.
+func TestBackfillSectors_SummaryAllUpdated(t *testing.T) {
+	f := &fakeBackfillSheets{valuesByRange: map[string][][]interface{}{
+		"미래에셋증권_국내계좌!A1:Q1": domesticHeaderRow(),
+		"미래에셋증권_국내계좌!C2:D":  {{"379780", "RISE 미국S&P500"}},
+		"미래에셋증권_국내계좌!E2:F2": {{"ETF", "미국주식"}},
+	}}
+	w := newBackfillWriter(t, f)
+
+	resolve := func(code, name string) (string, string) { return "ETF", "S&P500" }
+	summary, err := w.backfillSectors(context.Background(), resolve, resolve)
+	require.NoError(t, err)
+
+	assert.Equal(t, backfillSummary{updated: 1}, summary)
+	assert.False(t, summary.incomplete(err))
 }
