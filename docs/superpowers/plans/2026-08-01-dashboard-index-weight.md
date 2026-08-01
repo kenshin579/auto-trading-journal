@@ -1534,8 +1534,56 @@ git commit -m "refactor: ETF 섹터 값을 공유 상수로 묶고 버킷 매핑
 ### Task 6: `aggregateIndexWeight` — 누적 매수금액 + 보유 원금 집계
 
 **Files:**
+- Modify: `internal/etfclass/classifier.go` (Step 0 — 주석)
+- Modify: `internal/summary/country_sector.go` (Step 0 — 주석)
 - Modify: `internal/summary/index_weight.go`
 - Modify: `internal/summary/index_weight_test.go`
+
+- [ ] **Step 0: Task 5B 리뷰 반영 (주석·테스트 한 줄씩)**
+
+`internal/etfclass/classifier.go` 의 `SectorETF` 주석에 **자기참조 함정**을 명시한다. 이 값은
+`config/*_cache.json` 과 거래 시트에 문자열로 영속화되는데, `needsRefresh` 가 바로 그 값으로
+게이트하므로 상수를 바꾸면 **버전 메커니즘이 스스로를 마이그레이션할 수 없다**:
+
+```go
+// SectorETF 는 ETF/펀드로 판별된 종목의 섹터 값. bizcat·fmpcat 이 쓰고 summary 가 읽는
+// 패키지 간 계약이라 리터럴 대신 이 상수를 쓴다(한쪽만 바뀌면 지수 집계가 조용히 0 이 된다).
+//
+// 이 값은 config/*_cache.json 과 거래 시트에 문자열로 영속화된다. 바꾸면 기존 캐시·시트가
+// 전부 무효가 되고 needsRefresh 가 그걸 감지하지 못한다(체크 자체가 이 값에 의존) —
+// 바꿔야 한다면 캐시 삭제 + 시트 재생성이 함께 필요하다.
+const SectorETF = "ETF"
+```
+
+같은 파일 패키지 doc 을 실제 소유물에 맞게 넓힌다(지금은 "분류"만 말하는데 섹터 판별자까지 갖고 있다):
+
+```go
+// Package etfclass 는 ETF 라벨링 계약(섹터 판별자 + 카테고리 taxonomy + 종목명 분류기)을 소유한다.
+// 국내(internal/bizcat)와 해외(internal/fmpcat) 가 같은 체계를 공유하기 위해 분리돼 있다.
+```
+
+`internal/summary/index_weight_test.go` 의 `TestBucketOf_Index` 위(또는 첫 테스트 위)에 의도를 남긴다:
+
+```go
+// 이 파일의 테스트는 etfclass.SectorETF 상수가 아니라 리터럴 "ETF" 로 단언한다 —
+// 상수를 참조하면 상수가 바뀌는 사고(캐시·시트에 이미 저장된 값과 어긋남)를 못 잡는다.
+```
+
+`TestBucketOf_TrimsInput` 에 공백만 있는 입력 케이스를 추가한다(trim 이 빈 값 판정보다 앞에 온다는 순서를 고정):
+
+```go
+	g, b = bucketOf("   ", "   ")
+	assert.Equal(t, groupUnknown, g, "공백만 있는 입력은 trim 후 빈 값 처리")
+	assert.Equal(t, bucketUnknown, b)
+```
+
+`internal/summary/country_sector.go` 의 `sectorKey` 안 `"ETF·" + industry` 는 계약이 아니라
+사람이 읽는 표시 라벨이라 리터럴로 남긴다. 그 근거를 한 줄 달아 다음 리뷰에서 같은 질문이
+반복되지 않게 한다:
+
+```go
+	// "ETF·" 접두사는 패키지 간 계약이 아니라 표시 라벨이라 리터럴로 둔다.
+```
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
