@@ -682,6 +682,30 @@ func resolveETFIndustry(rprsName, fundName string, classify etfclass.Classifier)
 
 `kisFetch` 의 파라미터 타입도 `classifyETF etfclass.Classifier` 로 바꾼다.
 
+- [ ] **Step 3B: 빈 분류 결과의 처리를 정리**
+
+`Validate` 는 taxonomy 밖 응답을 `기타테마` 로 바꾸므로 **절대 빈 문자열을 반환하지 않는다.** 그래서
+`resolveETFIndustry` 의 `cat != ""` 가드는 `etfclass.New` 로 만든 분류기에 대해서는 죽은 가지다.
+가드는 남긴다 — `classifyETF` 는 주입되는 함수(`etfclass.Classifier`)라 호출부가 `Validate` 를
+거쳤다고 가정할 수 없고, 테스트 스텁이 실제로 빈 값을 돌려준다. 대신 그 이유를 주석으로 남긴다.
+
+빈 응답 자체는 관측 가능해야 하므로 `internal/etfclass/classifier.go` 의 `Validate` 에서
+빈 문자열 조기 반환에 경고를 붙인다:
+
+```go
+	if s == "" {
+		slog.Warn("ETF 카테고리가 비어 있음 — 기타테마로 처리")
+		return FallbackCategory
+	}
+```
+
+`resolveETFIndustry` 의 `cat == ""` 분기에 주석 한 줄:
+
+```go
+	// etfclass.New 로 만든 분류기는 Validate 를 거쳐 빈 값을 반환하지 않지만,
+	// classifyETF 는 주입되는 함수라 그 보장을 가정하지 않는다.
+```
+
 - [ ] **Step 4: 캐시 버전 v5 로 올리기**
 
 Task 2 의 v4 재분류 버스트 중 오염됐을 수 있는 항목을 무효화한다.
@@ -1955,6 +1979,14 @@ git commit -m "docs: 해외 ETF 판별 방식 정정 및 지수 vs 나머지 섹
   - 국내 ETF 89건 KIS 재조회(코드당 3콜, 3 calls/s → 약 1~2분), 해외 105건 FMP 재조회,
     OpenAI ETF 재분류 약 124건
   - 로그에 `섹터/산업 백필 완료` 가 시트마다 찍히는지 확인
+- [ ] **백필 직후 `config/bizcat_cache.json` · `config/fmpcat_cache.json` 을 눈으로 검수한다.**
+      이 기능의 정확도는 전적으로 LLM 프롬프트에 달려 있는데 CI 로 잡히는 것이 없다. 캐시가 곧
+      산출물이므로 실입력 약 194건을 1회 확인하는 것이 픽스처 테스트보다 커버리지가 넓다.
+      확인 항목:
+  - `배당` 건수가 백필 전(8건) 대비 급감하지 않았는가 — 급감했으면 배당 규칙이 지수 쪽으로 샌 것
+  - `S&P500` + `나스닥` + `미국주식(기타)` 합계가 백필 전 `미국주식`(15건)과 정합적인가
+  - 커버드콜(JEPI·JEPQ)·레버리지·팩터 펀드가 지수 3종 안에 하나도 없는가
+  - 실행 로그에 `ETF 카테고리가 taxonomy 밖` / `표기 정규화` 경고가 몇 건인가
 - [ ] `make run` — 대시보드에 새 섹션 반영
 - [ ] 시트에서 확인: `미분류` 줄이 보이면 그 금액만큼 분류가 빠진 것 — 로그의 경고로 원인 확인
 
